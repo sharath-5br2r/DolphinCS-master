@@ -28,6 +28,7 @@
 #include "Common/IOFile.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
+#include "Common/StringUtil.h"
 #include "Common/Thread.h"
 #include "Common/TimeUtil.h"
 #include "Common/TransferableSharedMutex.h"
@@ -96,7 +97,7 @@ struct CompressAndDumpStateArgs
 static Common::WorkQueueThreadSP<CompressAndDumpStateArgs> s_compress_and_dump_thread;
 
 // Don't forget to increase this after doing changes on the savestate system
-constexpr u32 STATE_VERSION = 191;  // Last changed in PR 14668
+constexpr u32 STATE_VERSION = 192;  // Last changed in PR 14646
 
 // Increase this if the StateExtendedHeader definition changes
 constexpr u32 EXTENDED_HEADER_VERSION = 1;  // Last changed in PR 12217
@@ -463,8 +464,9 @@ static void CompressAndDumpState(Core::System& system, const CompressAndDumpStat
   }
   else
   {
-    const std::filesystem::path temp_path(filename);
-    Core::DisplayMessage(fmt::format("Saved State to {}", temp_path.filename()), 2000);
+    const std::filesystem::path temp_path(StringToPath(filename));
+    Core::DisplayMessage(fmt::format("Saved State to {}", PathToString(temp_path.filename())),
+                         2000);
   }
 }
 
@@ -841,8 +843,9 @@ static void LoadAsFromCore(Core::System& system, std::string filename)
   {
     if (loaded_successfully)
     {
-      const std::filesystem::path temp_filename(filename);
-      Core::DisplayMessage(fmt::format("Loaded State from {}", temp_filename.filename()), 2000);
+      const std::filesystem::path temp_filename(StringToPath(filename));
+      Core::DisplayMessage(
+          fmt::format("Loaded State from {}", PathToString(temp_filename.filename())), 2000);
       if (File::Exists(filename + ".dtm"))
       {
         movie.LoadInput(filename + ".dtm");
