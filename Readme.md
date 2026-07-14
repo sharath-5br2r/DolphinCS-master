@@ -1,5 +1,7 @@
-# DolphinCS
+## DolphinCS Main
+DolphinCS Main is a fork of [DolphinCS](https://github.com/JoeysRetroHandhelds/DolphinCS) that instead syncs to pull requests.
 
+# DolphinCS
 DolphinCS is an unofficial fork of [Dolphin](https://github.com/dolphin-emu/dolphin), the
 GameCube/Wii emulator. It is **not affiliated with the Dolphin Emulator project**.
 
@@ -21,9 +23,8 @@ Nothing else is added, removed, or changed.
 
 ## Releases
 
-Releases here are built automatically whenever Dolphin publishes a new stable release. This fork
-tracks upstream Dolphin's release tags, not individual commits or dev builds. See the
-[Releases page](https://github.com/JoeysRetroHandhelds/DolphinCS/releases) for builds.
+Releases here are built automatically every pull request. See the
+[Releases page](https://github.com/sharath-5br2r/DolphinCS/releases) for builds.
 
 ## License
 

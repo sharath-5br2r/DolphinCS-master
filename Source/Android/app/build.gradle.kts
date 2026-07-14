@@ -36,7 +36,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.joeyos.dolphinemu"
+        applicationId = "com.tencent.tmgp.pubgmhd"
         minSdk = 24
         targetSdk = 37
 

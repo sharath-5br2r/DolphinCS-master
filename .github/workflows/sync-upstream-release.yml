@@ -1,51 +1,44 @@
-name: Sync Upstream Release
-
+name: Sync And Build
+permissions: write-all
 on:
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
-
-permissions:
-  contents: write
-
 jobs:
-  # Cheap, no-checkout check that runs every schedule tick. Only network calls to look at tag
-  # names -- no full clone, no submodules. The expensive sync job below only runs at all if
+  # Cheap, no-checkout check that runs every schedule tick. Only API calls to look at closed
+  # PR numbers -- no full clone, no submodules. The expensive sync job below only runs at all if
   # this finds something new, instead of checking out the whole repo just to bail out.
   check:
     runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.latest.outputs.tag }}
+      pr_number: ${{ steps.latest.outputs.pr_number }}
       should_run: ${{ steps.check.outputs.should_run }}
 
     steps:
-      - name: Determine latest upstream release tag
+      - name: Determine latest upstream closed PR
         id: latest
         run: |
-          # Dolphin tags real releases as YYMM, optionally with a letter suffix for point
-          # releases (e.g. 2606, 2603a). This intentionally excludes dev-build numbers, which
-          # aren't tags at all, and one-off historical tags like "nJoy". Sorted numerically by
-          # (YYMM, suffix) rather than plain lexical sort, since "2606a" > "2607" as raw text.
-          LATEST_TAG=$(git ls-remote --tags https://github.com/dolphin-emu/dolphin.git \
-            | awk '{print $2}' | sed 's#refs/tags/##; s/\^{}$//' | sort -u \
-            | python3 -c "import sys,re; tags=[l.strip() for l in sys.stdin if re.fullmatch(r'[0-9]{4}[a-z]?',l.strip())]; tags.sort(key=lambda t:(int(re.match(r'([0-9]{4})([a-z]?)',t).group(1)),re.match(r'([0-9]{4})([a-z]?)',t).group(2))); print(tags[-1] if tags else '')")
-          if [ -z "$LATEST_TAG" ]; then
-            echo "No matching release tag found on upstream"
+          # Fetch the most recently closed Pull Request from the upstream repository using GitHub API
+          LATEST_PR=$(curl -s "https://api.github.com/repos/dolphin-emu/dolphin/pulls?state=closed&per_page=1" \
+            | jq -r '.[0].number')
+          
+          if [ -z "$LATEST_PR" ] || [ "$LATEST_PR" = "null" ]; then
+            echo "No closed PRs found on upstream"
             exit 1
           fi
-          echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
-          echo "Latest upstream release tag: $LATEST_TAG"
+          echo "pr_number=$LATEST_PR" >> "$GITHUB_OUTPUT"
+          echo "Latest upstream closed PR number: $LATEST_PR"
 
       - name: Check if already synced
         id: check
         run: |
           if git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" \
-              "refs/tags/sync/${{ steps.latest.outputs.tag }}" >/dev/null 2>&1; then
+              "refs/tags/sync/pr-${{ steps.latest.outputs.pr_number }}" >/dev/null 2>&1; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "${{ steps.latest.outputs.tag }} already synced, nothing to do"
+            echo "PR #${{ steps.latest.outputs.pr_number }} already synced, nothing to do"
           else
             echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "${{ steps.latest.outputs.tag }} is new, running full sync"
+            echo "PR #${{ steps.latest.outputs.pr_number }} is new, running full sync"
           fi
 
   sync:
@@ -66,21 +59,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch upstream tags
+      - name: Fetch upstream PR branch
         run: |
           git remote add upstream https://github.com/dolphin-emu/dolphin.git
-          git fetch upstream --tags --quiet
+          # Fetch the specific closed PR's head branch references so we can merge it
+          git fetch upstream "pull/${{ needs.check.outputs.pr_number }}/head:upstream-pr-${{ needs.check.outputs.pr_number }}" --quiet
 
       # release-sync is rebuilt from the tip of master on every run, so
       # this automation never pushes to (or conflicts with) the branch used for manual testing.
       - name: Create release-sync branch from latest feature work
         run: git checkout -B release-sync master
 
-      - name: Merge upstream release tag
+      - name: Merge upstream PR branch
         id: merge
         run: |
           set +e
-          git merge "${{ needs.check.outputs.tag }}" --no-edit -m "Merge upstream release ${{ needs.check.outputs.tag }}"
+          git merge "upstream-pr-${{ needs.check.outputs.pr_number }}" --no-edit -m "Merge upstream PR #${{ needs.check.outputs.pr_number }}"
           status=$?
           set -e
           if [ $status -ne 0 ]; then
@@ -96,11 +90,11 @@ jobs:
       - name: Report merge conflict
         if: steps.merge.outputs.conflict == 'true'
         run: |
-          echo "Automatic merge of upstream tag '${{ needs.check.outputs.tag }}' into release-sync (based on master) produced conflicts."
+          echo "Automatic merge of upstream PR '#${{ needs.check.outputs.pr_number }}' into release-sync (based on master) produced conflicts."
           echo "Resolve manually:"
-          echo "  git fetch upstream --tags"
+          echo "  git fetch upstream pull/${{ needs.check.outputs.pr_number }}/head"
           echo "  git checkout -B release-sync master"
-          echo "  git merge ${{ needs.check.outputs.tag }}"
+          echo "  git merge FETCH_HEAD"
           exit 1
 
       - name: Update submodules
@@ -137,44 +131,65 @@ jobs:
 
       - name: Decode release keystore
         if: steps.merge.outputs.conflict == 'false'
-        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/dolphincs-release.jks"
+        run: echo "${{ secrets.KEYSTORE_P12 }}" | base64 -d > "$RUNNER_TEMP/dolphincs-release.p12"
 
       - name: Build release APK
         if: steps.merge.outputs.conflict == 'false'
         working-directory: Source/Android
         run: |
           ./gradlew assembleRelease --no-daemon \
-            -Pkeystore="$RUNNER_TEMP/dolphincs-release.jks" \
-            -Pstorepass="${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" \
-            -Pkeyalias="${{ secrets.RELEASE_KEY_ALIAS }}" \
-            -Pkeypass="${{ secrets.RELEASE_KEY_PASSWORD }}"
+            -Pkeystore="$RUNNER_TEMP/dolphincs-release.p12" \
+            -Pstorepass="${{ secrets.KEYSTORE_PASSWORD }}" \
+            -Pkeyalias="${{ secrets.KEYSTORE_ALIAS }}" \
+            -Pkeypass="${{ secrets.KEYSTORE_PASSWORD }}"
+          mv app/build/outputs/apk/release/app-release.apk ../../dolphincs-gfp-vpr-${{ needs.check.outputs.pr_number }}-all.apk
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
 
       - name: Remove decoded keystore
         if: always()
-        run: rm -f "$RUNNER_TEMP/dolphincs-release.jks"
+        run: rm -f "$RUNNER_TEMP/dolphincs-release.p12"
+      - name: Get Next Version Code
+        if: steps.merge.outputs.conflict == 'false'
+        id: version
+        run: |
+          set -euo pipefail
+          YEAR=$(date -u +"%y")
+          TAG=$( { gh release list -R sharath-5br2r/patched-apks-builder-2nd --exclude-drafts -L 100 2>/dev/null || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -nr | head -n1 )
+          if [ -n "$TAG" ]; then
+              BUILD_COUNT=${TAG:2:4}
+              BUILD_COUNT=$((10#$BUILD_COUNT + 1))
+          else
+              BUILD_COUNT=1
+          fi
 
+          NEXT_VER_CODE=$(printf "%s%04d" "$YEAR" "$BUILD_COUNT")
+          if [ -n "${GITHUB_OUTPUT:-}" ]; then
+              echo "NEXT_VER_CODE=$NEXT_VER_CODE" >> "$GITHUB_OUTPUT"
+          else
+              export NEXT_VER_CODE="$NEXT_VER_CODE"
+          fi
       - name: Publish release
         if: steps.merge.outputs.conflict == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "dolphin-${{ needs.check.outputs.tag }}"
-          name: "Dolphin ${{ needs.check.outputs.tag }} + Custom Storage Location"
+          tag_name: ${{ steps.version.outputs.NEXT_VER_CODE }}
+          name: Build No. ${{ steps.version.outputs.NEXT_VER_CODE }} (from upstream PR #${{ needs.check.outputs.pr_number }})
           target_commitish: release-sync
-          prerelease: false
+          prerelease: true
+          repository: sharath-5br2r/patched-apks-builder-2nd
           make_latest: true
-          files: Source/Android/app/build/outputs/apk/release/app-release.apk
+          files: *.apk
           body: |
-            Built from upstream Dolphin release `${{ needs.check.outputs.tag }}`, merged with the
+            Built from upstream Dolphin closed PR `#${{ needs.check.outputs.pr_number }}`, merged with the
             custom user data storage location feature (Scoped Storage / Internal Storage / SD Card).
 
             This is an unofficial community build, not affiliated with the Dolphin team.
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
       - name: Tag sync marker
         if: steps.merge.outputs.conflict == 'false'
         run: |
-          git tag "sync/${{ needs.check.outputs.tag }}"
-          git push origin "sync/${{ needs.check.outputs.tag }}"
+          git tag "sync/pr-${{ needs.check.outputs.pr_number }}"
+          git push origin "sync/pr-${{ needs.check.outputs.pr_number }}"
