@@ -57,6 +57,7 @@ android {
                 storePassword = project.property("storepass").toString()
                 keyAlias = project.property("keyalias").toString()
                 keyPassword = project.property("keypass").toString()
+                storeType "PKCS12"
             }
         }
     }
