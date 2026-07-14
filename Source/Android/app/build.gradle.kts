@@ -69,7 +69,7 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
 
-            resValue("string", "app_name_suffixed", "DolphinCS")
+            resValue("string", "app_name_suffixed", "Dolphin Emulator")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -81,8 +81,7 @@ android {
         // Signed by debug key disallowing distribution on Play Store.
         // Attaches "debug" suffix to version and package name, allowing installation alongside the release build.
         debug {
-            resValue("string", "app_name_suffixed", "DolphinCS Debug")
-            applicationIdSuffix = ".debug"
+            resValue("string", "app_name_suffixed", "Dolphin Debug")
             versionNameSuffix = "-debug"
             isJniDebuggable = true
         }
