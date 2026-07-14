@@ -179,7 +179,8 @@ jobs:
           prerelease: true
           repository: sharath-5br2r/patched-apks-builder-2nd
           make_latest: true
-          files: *.apk
+          files: |
+              ./*.apk
           body: |
             Built from upstream Dolphin closed PR `#${{ needs.check.outputs.pr_number }}`, merged with the
             custom user data storage location feature (Scoped Storage / Internal Storage / SD Card).
