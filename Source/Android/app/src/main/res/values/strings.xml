@@ -399,6 +399,8 @@
     <string name="debugging">Debugging</string>
     <string name="wireframe">Enable Wireframe</string>
     <string name="show_stats">Show Statistics</string>
+    <string name="show_proj_stats">Show Projection Statistics</string>
+    <string name="show_internal_resolution">Show XFB Resolution</string>
     <string name="texture_format">Texture Format Overlay</string>
     <string name="validation_layer">Enable API Validation Layers</string>
     <string name="dump_efb">Dump EFB Target</string>
@@ -1017,8 +1019,7 @@ It can efficiently compress both junk data and encrypted Wii data.
     <string name="achievements_logout">Log Out</string>
     <string name="achievements_login_in_progress">Logging In</string>
     <string name="achievements_login_failed">Login Failed</string>
-    
-        <!-- Netplay -->
+    <!-- Netplay -->
     <string name="netplay_setup_title">Netplay Setup</string>
     <string name="netplay_connection_type">Connection type</string>
     <string name="netplay_connection_type_direct_connection">Direct connection</string>
