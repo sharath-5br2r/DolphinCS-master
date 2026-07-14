@@ -169,6 +169,8 @@ jobs:
           else
               export NEXT_VER_CODE="$NEXT_VER_CODE"
           fi
+        env: 
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
       - name: Publish release
         if: steps.merge.outputs.conflict == 'false'
         uses: softprops/action-gh-release@v2
