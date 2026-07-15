@@ -1,5 +1,5 @@
 ## DolphinCS Main
-DolphinCS Main is a fork of [DolphinCS](https://github.com/JoeysRetroHandhelds/DolphinCS) that instead syncs to pull requests.
+DolphinCS Main is a fork of [DolphinCS](https://github.com/JoeysRetroHandhelds/DolphinCS) that instead syncs to pull requests. All branding is removed and the apk is spoofed to Game for Peace`com.tencent.tmgp.pubgmhd`  for performance.
 
 # DolphinCS
 DolphinCS is an unofficial fork of [Dolphin](https://github.com/dolphin-emu/dolphin), the
