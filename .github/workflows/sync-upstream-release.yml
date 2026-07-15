@@ -2,7 +2,7 @@ name: Sync And Build
 permissions: write-all
 on:
   schedule:
-    - cron: '*/30 * * * *'
+    - cron: '0 1/4 * * *'
   workflow_dispatch:
 jobs:
   # Cheap, no-checkout check that runs every schedule tick. Only API calls to look at closed
