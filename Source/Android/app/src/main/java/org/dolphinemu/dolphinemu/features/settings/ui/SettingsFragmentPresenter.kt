@@ -213,6 +213,46 @@ class SettingsFragmentPresenter(
         )
     }
 
+    /**
+     * Called by the fragment after the user picks a folder for a custom user data location.
+     * Decodes the tree URI to a real path; if it resolves to real on-device storage we switch to
+     * custom mode and restart. If it can't be decoded (e.g. a cloud provider), we tell the user
+     * and leave the current storage mode untouched.
+     */
+    fun onCustomUserDataFolderPicked(uri: Uri) {
+        Log.info("[CustomLocation] Folder picked, raw URI=$uri")
+        val realParent = DirectoryInitialization.treeUriToRealPath(context, uri)
+        if (realParent == null) {
+            Log.warning("[CustomLocation] Could not decode picked folder to a real path — aborting, mode unchanged")
+            fragmentView.showToastMessage(
+                context.getString(R.string.custom_location_unsupported)
+            )
+            return
+        }
+        Log.info("[CustomLocation] Picked folder decoded OK, committing custom mode + restart")
+        DirectoryInitialization.setCustomUserDir(context, realParent)
+        showStorageRestartDialog()
+    }
+
+    private fun showStorageRestartDialog() {
+        AlertDialog.Builder(context)
+            .setTitle(R.string.storage_restart_title)
+            .setMessage(R.string.storage_restart_message)
+            .setPositiveButton(R.string.storage_restart_button) { _, _ ->
+                val launchIntent = context.packageManager
+                    .getLaunchIntentForPackage(context.packageName)
+                    ?.apply {
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        )
+                    }
+                if (launchIntent != null) context.startActivity(launchIntent)
+                Process.killProcess(Process.myPid())
+            }
+            .setCancelable(false)
+            .show()
+    }
+
     private fun addGeneralSettings(sl: ArrayList<SettingsItem>) {
         val hasSdCard = DirectoryInitialization.hasSdCard(context)
         sl.add(
@@ -226,33 +266,21 @@ class SettingsFragmentPresenter(
                             context,
                             DirectoryInitialization.USER_DIR_MODE_SCOPED
                         )
-                        showRestartDialog()
+                        showStorageRestartDialog()
                         return true
                     }
                     override val int: Int
                         get() = DirectoryInitialization.getStorageMode(context)
                     override fun setInt(settings: Settings, newValue: Int) {
+                        if (newValue == DirectoryInitialization.USER_DIR_MODE_CUSTOM) {
+                            // Don't persist the mode yet — launch the folder picker first. Only
+                            // once the user picks a location we can decode to a real path do we
+                            // switch to custom mode and restart (see onCustomUserDataFolderPicked).
+                            fragmentView.launchCustomUserDataFolderPicker()
+                            return
+                        }
                         DirectoryInitialization.setStorageMode(context, newValue)
-                        showRestartDialog()
-                    }
-                    private fun showRestartDialog() {
-                        AlertDialog.Builder(context)
-                            .setTitle(R.string.storage_restart_title)
-                            .setMessage(R.string.storage_restart_message)
-                            .setPositiveButton(R.string.storage_restart_button) { _, _ ->
-                                val launchIntent = context.packageManager
-                                    .getLaunchIntentForPackage(context.packageName)
-                                    ?.apply {
-                                        addFlags(
-                                            Intent.FLAG_ACTIVITY_NEW_TASK or
-                                            Intent.FLAG_ACTIVITY_CLEAR_TASK
-                                        )
-                                    }
-                                if (launchIntent != null) context.startActivity(launchIntent)
-                                Process.killProcess(Process.myPid())
-                            }
-                            .setCancelable(false)
-                            .show()
+                        showStorageRestartDialog()
                     }
                 },
                 R.string.user_data_storage,

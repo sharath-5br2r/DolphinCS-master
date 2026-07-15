@@ -71,7 +71,8 @@
     <!-- General Preference Fragment -->
     <string name="general_submenu">General</string>
     <string name="user_data_storage">User Data Storage Location</string>
-    <string name="user_data_storage_description">Where Dolphin stores saves, settings, and other user data. Internal/SD Card requires restarting Dolphin to take effect. On Android 11+, \"All files access\" permission must be granted.</string>
+    <string name="user_data_storage_description">Where Dolphin stores saves, settings, and other user data. Internal/SD Card/Custom requires restarting Dolphin to take effect. On Android 11+, \"All files access\" permission must be granted. For Custom Location, Dolphin creates a \"dolphin-emu\" folder inside the folder you choose.</string>
+    <string name="custom_location_unsupported">That location can\'t be used. Pick a folder on internal storage or an SD card (cloud storage isn\'t supported).</string>
     <string name="storage_restart_title">Restart Required</string>
     <string name="storage_restart_message">Dolphin needs to restart to apply the new storage location.</string>
     <string name="storage_restart_button">Restart Now</string>

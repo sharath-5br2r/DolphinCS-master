@@ -764,19 +764,23 @@
         <item>Scoped Storage (default)</item>
         <item>Internal Storage (/sdcard/dolphin-emu)</item>
         <item>SD Card (/storage/&lt;card&gt;/dolphin-emu)</item>
+        <item>Custom Location…</item>
     </string-array>
     <integer-array name="userDataStorageValues">
         <item>0</item>
         <item>1</item>
         <item>2</item>
+        <item>3</item>
     </integer-array>
 
     <string-array name="userDataStorageEntriesNoSd">
         <item>Scoped Storage (default)</item>
         <item>Internal Storage (/sdcard/dolphin-emu)</item>
+        <item>Custom Location…</item>
     </string-array>
     <integer-array name="userDataStorageValuesNoSd">
         <item>0</item>
         <item>1</item>
+        <item>3</item>
     </integer-array>
 </resources>
