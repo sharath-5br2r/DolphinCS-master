@@ -139,10 +139,10 @@ jobs:
         run: |
           ./gradlew assembleRelease --no-daemon \
             -Pkeystore="$RUNNER_TEMP/dolphincs-release.p12" \
-            -Pstorepass="${{ secrets.KEYSTORE_PASSWORD }}" \
+            -Pstorepass="${{ secrets.KEYSTORE_PASS }}" \
             -Pkeyalias="${{ secrets.KEYSTORE_ALIAS }}" \
-            -Pkeypass="${{ secrets.KEYSTORE_PASSWORD }}"
-          mv app/build/outputs/apk/release/app-release.apk ../../dolphincs-gfp-vpr-${{ needs.check.outputs.pr_number }}-all.apk
+            -Pkeypass="${{ secrets.KEYSTORE_PASS }}"
+          mv app/build/outputs/apk/release/app-release.apk ../../dolphin-cs-gfp-vpr${{ needs.check.outputs.pr_number }}-all.apk
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
 
@@ -169,24 +169,36 @@ jobs:
           else
               export NEXT_VER_CODE="$NEXT_VER_CODE"
           fi
+        env: 
+          GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+      - name: Upload to release (Archive)
+        uses: softprops/action-gh-release@v3
+        if:  steps.merge.outputs.conflict == 'false'
+        with:
+          files: ./*.apk
+          tag_name: beta
+          overwrite_files: true
+          prerelease: true
+          repository: sharath-5br2r/patched-apks-builder-2nd
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
       - name: Publish release
         if: steps.merge.outputs.conflict == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.NEXT_VER_CODE }}
-          name: Build No. ${{ steps.version.outputs.NEXT_VER_CODE }} (from upstream PR #${{ needs.check.outputs.pr_number }})
-          target_commitish: release-sync
+          name: Build No. ${{ steps.version.outputs.NEXT_VER_CODE }} 
           prerelease: true
           repository: sharath-5br2r/patched-apks-builder-2nd
+          overwrite_files: true
           make_latest: true
-          files: *.apk
+          files: |
+              ./*.apk
           body: |
             Built from upstream Dolphin closed PR `#${{ needs.check.outputs.pr_number }}`, merged with the
             custom user data storage location feature (Scoped Storage / Internal Storage / SD Card).
 
             This is an unofficial community build, not affiliated with the Dolphin team.
-        env:
-          GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
       - name: Tag sync marker
         if: steps.merge.outputs.conflict == 'false'
