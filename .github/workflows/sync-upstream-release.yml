@@ -26,6 +26,8 @@ jobs:
     outputs:
       tag: ${{ steps.latest.outputs.tag }}
       should_run: ${{ steps.check.outputs.should_run }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+      release_name: ${{ steps.check.outputs.release_name }}
 
     steps:
       - name: Determine latest upstream release tag
@@ -47,14 +49,38 @@ jobs:
 
       - name: Check if already synced
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TAG="${{ steps.latest.outputs.tag }}"
+
           if git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" \
-              "refs/tags/sync/${{ steps.latest.outputs.tag }}" >/dev/null 2>&1; then
+              "refs/tags/sync/$TAG" >/dev/null 2>&1; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "${{ steps.latest.outputs.tag }} already synced, nothing to do"
+            echo "$TAG already synced, nothing to do"
+            exit 0
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "$TAG is new (or a manually forced re-run), running full sync"
+
+          # If dolphin-$TAG already has a release, this is a manually forced re-run for a tag
+          # we've shipped before (e.g. to ship our own feature ahead of Dolphin's next version).
+          # Publish a new, distinct revision release instead of silently overwriting the
+          # existing one, so it actually shows up as new and notifies watchers.
+          EXISTING=$(gh api "repos/${{ github.repository }}/releases" --paginate --jq '.[].tag_name' \
+            | grep -E "^dolphin-$TAG(-r[0-9]+)?$" || true)
+
+          if [ -z "$EXISTING" ]; then
+            echo "release_tag=dolphin-$TAG" >> "$GITHUB_OUTPUT"
+            echo "release_name=Dolphin $TAG + Custom Storage Location" >> "$GITHUB_OUTPUT"
           else
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "${{ steps.latest.outputs.tag }} is new, running full sync"
+            MAX_REV=$(echo "$EXISTING" \
+              | sed -E "s/^dolphin-$TAG-r([0-9]+)\$/\1/; s/^dolphin-$TAG\$/1/" \
+              | sort -n | tail -1)
+            NEXT_REV=$((MAX_REV + 1))
+            echo "release_tag=dolphin-$TAG-r$NEXT_REV" >> "$GITHUB_OUTPUT"
+            echo "release_name=Dolphin $TAG + Custom Storage Location (Update $NEXT_REV)" >> "$GITHUB_OUTPUT"
           fi
 
   sync:
@@ -168,8 +194,8 @@ jobs:
         if: steps.merge.outputs.conflict == 'false'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "dolphin-${{ needs.check.outputs.tag }}"
-          name: "Dolphin ${{ needs.check.outputs.tag }} + Custom Storage Location"
+          tag_name: "${{ needs.check.outputs.release_tag }}"
+          name: "${{ needs.check.outputs.release_name }}"
           target_commitish: release-sync
           prerelease: false
           make_latest: true
