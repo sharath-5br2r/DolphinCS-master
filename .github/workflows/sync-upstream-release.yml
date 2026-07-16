@@ -208,6 +208,7 @@ jobs:
 
       - name: Tag sync marker
         if: steps.merge.outputs.conflict == 'false'
+        continue-on-error: true
         run: |
           git tag "sync/pr-${{ needs.check.outputs.pr_number }}"
           git push origin "sync/pr-${{ needs.check.outputs.pr_number }}"
