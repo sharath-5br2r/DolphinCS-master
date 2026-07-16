@@ -43,7 +43,7 @@ jobs:
 
   sync:
     needs: check
-    if: needs.check.outputs.should_run == 'true'
+    if: ${{ needs.check.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
 
     steps:
