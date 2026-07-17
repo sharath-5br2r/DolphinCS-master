@@ -127,6 +127,12 @@ interface SettingsFragmentView {
     fun showGpuDriverDialog()
 
     /**
+     * Launches the system folder picker so the user can choose a custom user data location.
+     * The result is decoded to a real path and handled by the presenter.
+     */
+    fun launchCustomUserDataFolderPicker()
+
+    /**
      * Returns the Lifecycle for the Fragment.
      */
     fun getFragmentLifecycle(): Lifecycle

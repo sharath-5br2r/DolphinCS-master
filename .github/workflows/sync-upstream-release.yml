@@ -4,6 +4,16 @@ on:
   schedule:
     - cron: '0 1/4 * * *'
   workflow_dispatch:
+
+# Only one run of this workflow at a time. A new trigger queues instead of running
+# alongside an in-progress build, so a scheduled tick that lands mid-build waits its
+# turn rather than kicking off a redundant duplicate release. cancel-in-progress is
+# deliberately false: cancelling a near-finished real build to restart from scratch
+# would be wasteful, and could in theory loop forever if ticks keep landing mid-build.
+concurrency:
+  group: sync-upstream-release
+  cancel-in-progress: false
+
 jobs:
   # Cheap, no-checkout check that runs every schedule tick. Only API calls to look at closed
   # PR numbers -- no full clone, no submodules. The expensive sync job below only runs at all if
@@ -13,6 +23,8 @@ jobs:
     outputs:
       pr_number: ${{ steps.latest.outputs.pr_number }}
       should_run: ${{ steps.check.outputs.should_run }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+      release_name: ${{ steps.check.outputs.release_name }}
 
     steps:
       - name: Determine latest upstream closed PR
@@ -31,15 +43,23 @@ jobs:
 
       - name: Check if already synced
         id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Create a unified tag variable using the latest PR number
+          TAG="pr-${{ steps.latest.outputs.pr_number }}"
+
           if git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" \
-              "refs/tags/sync/pr-${{ steps.latest.outputs.pr_number }}" >/dev/null 2>&1; then
+              "refs/tags/sync/$TAG" >/dev/null 2>&1; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "PR #${{ steps.latest.outputs.pr_number }} already synced, nothing to do"
-          else
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
-            echo "PR #${{ steps.latest.outputs.pr_number }} is new, running full sync"
+            echo "$TAG already synced, nothing to do"
+            exit 0
           fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "$TAG is new (or a manually forced re-run), running full sync"
+
+
 
   sync:
     needs: check

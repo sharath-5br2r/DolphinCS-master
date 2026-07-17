@@ -43,9 +43,18 @@ object DirectoryInitialization {
     const val USER_DIR_MODE_SCOPED = 0
     const val USER_DIR_MODE_INTERNAL = 1
     const val USER_DIR_MODE_SDCARD = 2
+    const val USER_DIR_MODE_CUSTOM = 3
 
     private const val PREF_MIGRATION_OFFERED = "userDataMigrationOffered"
     private const val PREF_PREVIOUS_USER_DIR_MODE = "previousUserDirMode"
+    private const val PREF_CUSTOM_USER_DIR_PATH = "customUserDirPath"
+
+    // The exact real path we were using right before switching, captured at the moment of
+    // switching (while userPath still reflects the old location). This is what migration
+    // actually reads from — NOT reconstructed from the mode afterward, since two different
+    // custom folders share the same mode number (CUSTOM) and the mode alone can't tell them
+    // apart once the new path has overwritten the old one in prefs.
+    private const val PREF_MIGRATION_SOURCE_PATH = "migrationSourcePath"
 
     private val directoryState = MutableLiveData(DirectoryInitializationState.NOT_YET_INITIALIZED)
 
@@ -90,6 +99,7 @@ object DirectoryInitialization {
         // Record before Initialize() creates default folders, so migration can distinguish
         // a pre-existing user directory from one Dolphin just scaffolded fresh
         userDirectoryWasPreExisting = File(userPath).let { it.exists() && it.listFiles()?.isNotEmpty() == true }
+        Log.info("[CustomLocation] init: userPath=$userPath, mode=${getStorageMode(context)}, preExisting=$userDirectoryWasPreExisting")
 
         // A storage location change restarts into this directory before the user has decided
         // (or before the copy has run), so handle both the "Keep Existing" conflict case and the
@@ -97,22 +107,22 @@ object DirectoryInitialization {
         run {
             val prefs = PreferenceManager.getDefaultSharedPreferences(context)
             if (!prefs.getBoolean(PREF_MIGRATION_OFFERED, false)) {
-                val prevMode = prefs.getInt(PREF_PREVIOUS_USER_DIR_MODE, -1)
-                val currentMode = getStorageMode(context)
-                if (prevMode != -1 && prevMode != currentMode) {
-                    getPathForMode(context, prevMode)?.let { source ->
-                        if (source.absolutePath != File(userPath).absolutePath) {
-                            if (userDirectoryWasPreExisting) {
-                                // Patch ahead of GameFileCache's own startup scan, which
-                                // silently strips unresolvable ISOPaths and saves — otherwise
-                                // that runs before the user even sees the migration dialog.
-                                patchStalePaths(context, source)
-                            } else {
-                                // Destination is empty until the copy runs, so first-run flags
-                                // like the analytics prompt would otherwise reset and re-fire
-                                // on every storage location change.
-                                seedFirstRunFlagsFromSource(source)
-                            }
+                val sourcePath = prefs.getString(PREF_MIGRATION_SOURCE_PATH, null)
+                if (sourcePath != null) {
+                    val source = File(sourcePath)
+                    if (source.absolutePath != File(userPath).absolutePath) {
+                        if (userDirectoryWasPreExisting) {
+                            // Patch ahead of GameFileCache's own startup scan, which
+                            // silently strips unresolvable ISOPaths and saves — otherwise
+                            // that runs before the user even sees the migration dialog.
+                            Log.info("[CustomLocation] init: pre-existing dest — patching stale paths ahead of scan")
+                            patchStalePaths(context, source)
+                        } else {
+                            // Destination is empty until the copy runs, so first-run flags
+                            // like the analytics prompt would otherwise reset and re-fire
+                            // on every storage location change.
+                            Log.info("[CustomLocation] init: empty dest — seeding first-run flags from source")
+                            seedFirstRunFlagsFromSource(source)
                         }
                     }
                 }
@@ -146,43 +156,158 @@ object DirectoryInitialization {
     @JvmStatic
     fun setStorageMode(context: Context, mode: Int) {
         val current = getStorageMode(context)
-        PreferenceManager.getDefaultSharedPreferences(context).edit()
+        val editor = PreferenceManager.getDefaultSharedPreferences(context).edit()
             .putInt(PREF_USER_DIR_MODE, mode)
             .putInt(PREF_PREVIOUS_USER_DIR_MODE, current)
             .remove(PREF_MIGRATION_OFFERED)
-            .apply()
+        if (areDirectoriesAvailable) {
+            Log.info("[CustomLocation] setStorageMode: capturing migration source=$userPath (mode $current -> $mode)")
+            editor.putString(PREF_MIGRATION_SOURCE_PATH, userPath)
+        }
+        editor.apply()
     }
 
-    private fun getPathForMode(context: Context, mode: Int): File? = when (mode) {
-        USER_DIR_MODE_INTERNAL -> getLegacyUserDirectoryPath()
-        USER_DIR_MODE_SDCARD   -> getSdCardRoot(context)?.let { File(it, "dolphin-emu") }
-        else                   -> context.getExternalFilesDir(null)
+    @JvmStatic
+    fun getCustomUserDirPath(context: Context): String? =
+        PreferenceManager.getDefaultSharedPreferences(context)
+            .getString(PREF_CUSTOM_USER_DIR_PATH, null)
+
+    /**
+     * Records a user-chosen custom location and switches to custom mode. [parentRealPath] is the
+     * real absolute path of the folder the user picked; we always place a "dolphin-emu" folder
+     * inside it so we only ever own (and, on migration, delete) our own subfolder — never the
+     * user's chosen folder itself. Mirrors [setStorageMode]'s bookkeeping so migration works.
+     */
+    @JvmStatic
+    fun setCustomUserDir(context: Context, parentRealPath: String) {
+        val current = getStorageMode(context)
+        val userDir = File(parentRealPath, "dolphin-emu").absolutePath
+        Log.info("[CustomLocation] setCustomUserDir: parent=$parentRealPath")
+        Log.info("[CustomLocation]   userDir (dolphin-emu appended)=$userDir")
+        Log.info("[CustomLocation]   previousMode=$current -> mode=CUSTOM($USER_DIR_MODE_CUSTOM)")
+        val editor = PreferenceManager.getDefaultSharedPreferences(context).edit()
+            .putString(PREF_CUSTOM_USER_DIR_PATH, userDir)
+            .putInt(PREF_USER_DIR_MODE, USER_DIR_MODE_CUSTOM)
+            .putInt(PREF_PREVIOUS_USER_DIR_MODE, current)
+            .remove(PREF_MIGRATION_OFFERED)
+        // Captured here (not derived from mode later) specifically so custom->custom works: two
+        // different custom folders are both mode CUSTOM, so once userDir above overwrites
+        // PREF_CUSTOM_USER_DIR_PATH, the old path would otherwise be unrecoverable.
+        if (areDirectoriesAvailable) {
+            Log.info("[CustomLocation]   capturing migration source=$userPath")
+            editor.putString(PREF_MIGRATION_SOURCE_PATH, userPath)
+        }
+        editor.apply()
+    }
+
+    /**
+     * Converts an ACTION_OPEN_DOCUMENT_TREE tree URI into a real absolute filesystem path, or
+     * null if it can't be resolved to one. Only real on-device storage exposed by the Android
+     * external-storage provider (primary internal storage and physical SD cards) can be decoded;
+     * cloud providers (Drive, etc.) have no real path and return null. Since we hold all-files
+     * access, the returned path is then used directly for fast native file I/O — SAF is only ever
+     * touched here, for the one-time folder selection.
+     */
+    @JvmStatic
+    fun treeUriToRealPath(context: Context, treeUri: Uri): String? {
+        Log.info("[CustomLocation] Decoding tree URI: $treeUri")
+        Log.info("[CustomLocation]   authority=${treeUri.authority}")
+
+        if (treeUri.authority != "com.android.externalstorage.documents") {
+            Log.warning("[CustomLocation] Rejected: not the external-storage provider (likely cloud/other)")
+            return null
+        }
+
+        val documentId = try {
+            DocumentsContract.getTreeDocumentId(treeUri)
+        } catch (e: Exception) {
+            Log.error("[CustomLocation] Rejected: getTreeDocumentId threw: ${e.message}")
+            return null
+        }
+        Log.info("[CustomLocation]   documentId=$documentId")
+
+        val colon = documentId.indexOf(':')
+        if (colon == -1) {
+            Log.warning("[CustomLocation] Rejected: documentId has no ':' separator")
+            return null
+        }
+        val volumeId = documentId.substring(0, colon)
+        val relativePath = documentId.substring(colon + 1)
+        Log.info("[CustomLocation]   volumeId=$volumeId, relativePath=$relativePath")
+
+        val volumeRoot: File = if (volumeId.equals("primary", ignoreCase = true)) {
+            val primary = Environment.getExternalStorageDirectory()
+            if (primary == null) {
+                Log.error("[CustomLocation] Rejected: getExternalStorageDirectory() returned null")
+                return null
+            }
+            Log.info("[CustomLocation]   primary volume root=${primary.absolutePath}")
+            primary
+        } else {
+            // Physical SD card / USB storage is mounted at /storage/<volumeId>. Prefer the
+            // StorageManager's own directory when the volume UUID matches, in case an OEM mounts
+            // it somewhere non-standard.
+            val sdRoot = getSdCardRoot(context)
+            Log.info("[CustomLocation]   sdRoot=${sdRoot?.absolutePath} (name=${sdRoot?.name})")
+            if (sdRoot != null && sdRoot.name == volumeId) {
+                Log.info("[CustomLocation]   using StorageManager SD root (UUID matched)")
+                sdRoot
+            } else {
+                val fallback = File("/storage/$volumeId")
+                Log.info("[CustomLocation]   using fallback mount point=${fallback.absolutePath}")
+                fallback
+            }
+        }
+
+        val resolved = if (relativePath.isEmpty()) volumeRoot.absolutePath
+        else File(volumeRoot, relativePath).absolutePath
+        Log.info("[CustomLocation] Decoded real path=$resolved")
+        Log.info("[CustomLocation]   exists=${File(resolved).exists()}, isDir=${File(resolved).isDirectory}, canWrite=${File(resolved).canWrite()}")
+        return resolved
     }
 
     enum class MigrationState { NONE, CLEAN, CONFLICT }
 
     @JvmStatic
     fun getMigrationState(context: Context): MigrationState {
-        if (!areDirectoriesAvailable) return MigrationState.NONE
+        if (!areDirectoriesAvailable) {
+            Log.info("[CustomLocation] getMigrationState=NONE (directories not available yet)")
+            return MigrationState.NONE
+        }
 
         val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        if (prefs.getBoolean(PREF_MIGRATION_OFFERED, false)) return MigrationState.NONE
+        if (prefs.getBoolean(PREF_MIGRATION_OFFERED, false)) {
+            Log.info("[CustomLocation] getMigrationState=NONE (already offered)")
+            return MigrationState.NONE
+        }
 
-        val prevMode = prefs.getInt(PREF_PREVIOUS_USER_DIR_MODE, -1)
-        if (prevMode == -1) return MigrationState.NONE
+        val sourcePath = prefs.getString(PREF_MIGRATION_SOURCE_PATH, null)
+        if (sourcePath == null) {
+            Log.info("[CustomLocation] getMigrationState=NONE (no migration source recorded)")
+            return MigrationState.NONE
+        }
 
-        val currentMode = getStorageMode(context)
-        if (prevMode == currentMode) return MigrationState.NONE
-
-        val sourceDir = getPathForMode(context, prevMode) ?: return MigrationState.NONE
-        if (!sourceDir.exists() || sourceDir.listFiles()?.isEmpty() != false) return MigrationState.NONE
+        Log.info("[CustomLocation] getMigrationState: prevMode=${prefs.getInt(PREF_PREVIOUS_USER_DIR_MODE, -1)}, currentMode=${getStorageMode(context)}")
+        val sourceDir = File(sourcePath)
+        Log.info("[CustomLocation] getMigrationState: source=${sourceDir.absolutePath}, dest=$userPath")
+        if (!sourceDir.exists() || sourceDir.listFiles()?.isEmpty() != false) {
+            Log.info("[CustomLocation] getMigrationState=NONE (source missing or empty)")
+            return MigrationState.NONE
+        }
 
         val destDir = File(userPath)
-        // If paths are the same the app fell back to scoped due to missing permission — not a real migration
-        if (sourceDir.canonicalPath == destDir.canonicalPath) return MigrationState.NONE
+        // Same resolved path means either the app fell back to scoped due to missing permission,
+        // or (for custom mode) the user picked the exact same folder again — neither is a real
+        // migration.
+        if (sourceDir.canonicalPath == destDir.canonicalPath) {
+            Log.info("[CustomLocation] getMigrationState=NONE (source==dest — permission fallback or same folder re-picked)")
+            return MigrationState.NONE
+        }
 
         // Use the pre-init snapshot so Dolphin's own folder scaffolding doesn't look like a conflict
-        return if (userDirectoryWasPreExisting) MigrationState.CONFLICT else MigrationState.CLEAN
+        val state = if (userDirectoryWasPreExisting) MigrationState.CONFLICT else MigrationState.CLEAN
+        Log.info("[CustomLocation] getMigrationState=$state (destPreExisting=$userDirectoryWasPreExisting)")
+        return state
     }
 
     @JvmStatic
@@ -207,9 +332,15 @@ object DirectoryInitialization {
 
         val prefs = PreferenceManager.getDefaultSharedPreferences(context)
         val prevMode = prefs.getInt(PREF_PREVIOUS_USER_DIR_MODE, -1)
-        val source = getPathForMode(context, prevMode) ?: run { onComplete(MigrationResult.FAILED); return }
+        val sourcePath = prefs.getString(PREF_MIGRATION_SOURCE_PATH, null)
+            ?: run { onComplete(MigrationResult.FAILED); return }
+        val source = File(sourcePath)
         val dest = File(userPath)
-        if (source.absolutePath == dest.absolutePath) { onComplete(MigrationResult.SUCCESS); return }
+        Log.info("[CustomLocation] Migration START: prevMode=$prevMode, source=${source.absolutePath}, dest=${dest.absolutePath}")
+        if (source.absolutePath == dest.absolutePath) {
+            Log.info("[CustomLocation] Migration: source==dest, nothing to do")
+            onComplete(MigrationResult.SUCCESS); return
+        }
 
         thread {
             try {
@@ -234,6 +365,7 @@ object DirectoryInitialization {
 
                 val files = source.walk().filter { it.isFile }.toList()
                 val requiredBytes = files.sumOf { it.length() }
+                Log.info("[CustomLocation] Migration: ${files.size} files, ${requiredBytes / (1024 * 1024)}MB to copy")
 
                 // dest may not exist yet (clean migration) — walk up to the nearest existing
                 // ancestor to find its writability and how much space is available on that volume.
@@ -241,6 +373,7 @@ object DirectoryInitialization {
                 while (!spaceProbe.exists() && spaceProbe.parentFile != null) {
                     spaceProbe = spaceProbe.parentFile!!
                 }
+                Log.info("[CustomLocation] Migration: spaceProbe=${spaceProbe.absolutePath}, canWrite=${spaceProbe.canWrite()}, usable=${spaceProbe.usableSpace / (1024 * 1024)}MB")
 
                 if (!spaceProbe.canWrite()) {
                     Log.error("[DirectoryInitialization] Migration aborted — destination is not writable")
@@ -277,18 +410,24 @@ object DirectoryInitialization {
                     onProgress(index + 1, total)
                 }
 
+                Log.info("[CustomLocation] Migration: copy done, verifying...")
                 if (verifyMigration(source, dest)) {
+                    Log.info("[CustomLocation] Migration: verify OK, patching stale paths + deleting source")
                     // The copied Dolphin.ini still has path/URI values pointing at the old
                     // location — rewrite anything that resolves under the new user directory.
                     patchStalePaths(context, source)
 
-                    // For Internal/SD Card we own the dolphin-emu folder entirely — delete it.
-                    // For Scoped, Android manages the directory itself so only empty it.
-                    if (prevMode == USER_DIR_MODE_INTERNAL || prevMode == USER_DIR_MODE_SDCARD) {
+                    // For Internal/SD Card/Custom we own the dolphin-emu folder entirely — delete
+                    // it. For Scoped, Android manages the directory itself so only empty it.
+                    if (prevMode == USER_DIR_MODE_INTERNAL ||
+                        prevMode == USER_DIR_MODE_SDCARD ||
+                        prevMode == USER_DIR_MODE_CUSTOM
+                    ) {
                         source.deleteRecursively()
                     } else {
                         source.listFiles()?.forEach { it.deleteRecursively() }
                     }
+                    Log.info("[CustomLocation] Migration SUCCESS")
                     onComplete(MigrationResult.SUCCESS)
                 } else {
                     Log.error("[DirectoryInitialization] Migration verification failed — source kept")
@@ -374,13 +513,18 @@ object DirectoryInitialization {
      * Rewrites path-like settings in Dolphin.ini that still point at [sourceRoot] (the previous
      * user directory) so they resolve under the current [userPath] instead. Values that don't
      * fall under [sourceRoot] are left untouched, since they were deliberately pointed elsewhere.
+     *
+     * content:// values are handled separately (see [decodeContentUriIfStillReal]) and don't
+     * need to match [sourceRoot] at all — game folders, GBA BIOS, etc. are picked independently
+     * of the user directory (usually pointing at wherever the user's ROMs actually live), so the
+     * only thing that matters for those is whether the location they decode to still exists,
+     * regardless of how many storage-mode switches or app reinstalls have happened since.
      */
     private fun patchStalePaths(context: Context, sourceRoot: File) {
         val iniFile = File(userPath, "Config" + File.separator + "Dolphin.ini")
         if (!iniFile.exists()) return
 
         val sourceRootAbs = sourceRoot.absolutePath
-        val sourceRootRelative = relativeToVolumeRoot(context, sourceRoot)
 
         val lines = try {
             iniFile.readLines()
@@ -410,7 +554,8 @@ object DirectoryInitialization {
                 TRACKED_STRING_PATHS[currentSection]?.contains(key) == true
             if (!isTracked) return@map line
 
-            val rewritten = rewriteStalePath(value, sourceRootAbs, sourceRootRelative) ?: return@map line
+            val rewritten = rewriteStalePath(context, value, sourceRootAbs) ?: return@map line
+            Log.info("[CustomLocation] patchStalePaths: [$currentSection] $key: $value -> $rewritten")
             changed = true
             "$key = $rewritten"
         }
@@ -424,66 +569,66 @@ object DirectoryInitialization {
         }
     }
 
-    /**
-     * Returns [dir]'s path relative to the shared-storage volume it lives on (primary internal
-     * storage or a removable SD card), so it can be compared against a SAF document ID's
-     * volume-relative path. Returns null if [dir] isn't under a recognized volume.
-     */
-    private fun relativeToVolumeRoot(context: Context, dir: File): String? {
-        val sdRoot = getSdCardRoot(context)
-        val externalRoot = Environment.getExternalStorageDirectory()
-
-        val volumeRoot = when {
-            sdRoot != null && dir.absolutePath.startsWith(sdRoot.absolutePath + File.separator) -> sdRoot
-            dir.absolutePath.startsWith(externalRoot.absolutePath + File.separator) -> externalRoot
-            else -> return null
+    private fun rewriteStalePath(context: Context, value: String, sourceRootAbs: String): String? {
+        if (ContentHandler.isContentUri(value)) {
+            return decodeContentUriIfStillReal(context, value)
         }
 
-        return dir.absolutePath.removePrefix(volumeRoot.absolutePath + File.separator)
-    }
-
-    private fun rewriteStalePath(value: String, sourceRootAbs: String, sourceRootRelative: String?): String? {
-        val suffix = if (ContentHandler.isContentUri(value)) {
-            if (sourceRootRelative == null) return null
-
-            val uri = try {
-                Uri.parse(value)
-            } catch (e: Exception) {
-                return null
-            }
-            if (uri.authority != "com.android.externalstorage.documents") return null
-
-            val documentId = try {
-                DocumentsContract.getDocumentId(uri)
-            } catch (e: Exception) {
-                try {
-                    DocumentsContract.getTreeDocumentId(uri)
-                } catch (e2: Exception) {
-                    null
-                }
-            } ?: return null
-
-            val colonIndex = documentId.indexOf(':')
-            if (colonIndex == -1) return null
-            val relativePath = documentId.substring(colonIndex + 1)
-
-            when {
-                relativePath == sourceRootRelative -> ""
-                relativePath.startsWith("$sourceRootRelative/") ->
-                    relativePath.removePrefix("$sourceRootRelative/")
-                else -> return null
-            }
-        } else {
-            when {
-                value == sourceRootAbs -> ""
-                value.startsWith(sourceRootAbs + File.separator) ->
-                    value.removePrefix(sourceRootAbs + File.separator)
-                else -> return null
-            }
+        val suffix = when {
+            value == sourceRootAbs -> ""
+            value.startsWith(sourceRootAbs + File.separator) ->
+                value.removePrefix(sourceRootAbs + File.separator)
+            else -> return null
         }
 
         val newFile = if (suffix.isEmpty()) File(userPath) else File(userPath, suffix)
         return if (newFile.exists()) newFile.absolutePath else null
+    }
+
+    /**
+     * Decodes a stored content:// URI (game folder, GBA BIOS, etc.) to its real absolute path and
+     * returns it only if that path still exists on disk right now. Unlike [rewriteStalePath]'s
+     * plain-path handling, this doesn't need to know any migration history — game folders and
+     * similar are picked independently of the user directory, so "does the real thing still
+     * exist" is the only question that matters, however far back or disconnected the entry's
+     * origin is (a different app install, an old SD card path, etc.).
+     */
+    private fun decodeContentUriIfStillReal(context: Context, value: String): String? {
+        val uri = try {
+            Uri.parse(value)
+        } catch (e: Exception) {
+            return null
+        }
+        if (uri.authority != "com.android.externalstorage.documents") return null
+
+        val documentId = try {
+            DocumentsContract.getDocumentId(uri)
+        } catch (e: Exception) {
+            try {
+                DocumentsContract.getTreeDocumentId(uri)
+            } catch (e2: Exception) {
+                return null
+            }
+        }
+
+        val colon = documentId.indexOf(':')
+        if (colon == -1) return null
+        val volumeId = documentId.substring(0, colon)
+        val relativePath = documentId.substring(colon + 1)
+
+        val volumeRoot = volumeIdToRoot(context, volumeId) ?: return null
+        val resolved = if (relativePath.isEmpty()) volumeRoot else File(volumeRoot, relativePath)
+        return if (resolved.exists()) resolved.absolutePath else null
+    }
+
+    /** Resolves a SAF document ID's volume component to its real filesystem root. */
+    private fun volumeIdToRoot(context: Context, volumeId: String): File? {
+        return if (volumeId.equals("primary", ignoreCase = true)) {
+            Environment.getExternalStorageDirectory()
+        } else {
+            val sdRoot = getSdCardRoot(context)
+            if (sdRoot != null && sdRoot.name == volumeId) sdRoot else File("/storage/$volumeId")
+        }
     }
 
     private fun hasLegacyStorageAccess(context: Context): Boolean {
@@ -537,6 +682,22 @@ object DirectoryInitialization {
                     usingLegacyUserDirectory = true
                     File(sdRoot, "dolphin-emu")
                 } else {
+                    usingLegacyUserDirectory = false
+                    context.getExternalFilesDir(null)
+                }
+            }
+            USER_DIR_MODE_CUSTOM -> {
+                val customPath = getCustomUserDirPath(context)
+                val hasAccess = hasLegacyStorageAccess(context)
+                Log.info("[CustomLocation] getUserDirectoryPath CUSTOM: storedPath=$customPath, hasAllFilesAccess=$hasAccess")
+                if (customPath != null && hasAccess) {
+                    Log.info("[CustomLocation]   using custom path=$customPath")
+                    usingLegacyUserDirectory = true
+                    File(customPath)
+                } else {
+                    // No stored path yet, or All Files Access not granted — fall back to scoped
+                    // so the app still boots. The permission prompt handles the rest on restart.
+                    Log.warning("[CustomLocation]   falling back to scoped (path null or no access)")
                     usingLegacyUserDirectory = false
                     context.getExternalFilesDir(null)
                 }

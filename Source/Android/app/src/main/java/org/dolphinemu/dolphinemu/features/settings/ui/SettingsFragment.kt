@@ -32,6 +32,7 @@ import org.dolphinemu.dolphinemu.databinding.FragmentSettingsBinding
 import org.dolphinemu.dolphinemu.features.settings.model.Settings
 import org.dolphinemu.dolphinemu.features.settings.model.view.SettingsItem
 import org.dolphinemu.dolphinemu.utils.GpuDriverInstallResult
+import org.dolphinemu.dolphinemu.utils.Log
 import org.dolphinemu.dolphinemu.utils.SerializableHelper.serializable
 import java.util.*
 import kotlin.collections.ArrayList
@@ -61,6 +62,24 @@ class SettingsFragment : Fragment(), SettingsFragmentView {
         if (result.resultCode == Activity.RESULT_OK && uri != null) {
             presenter.installDriver(uri)
         }
+    }
+
+    private val requestUserDataFolder = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result: ActivityResult ->
+        val uri = result.data?.data
+        Log.info("[CustomLocation] Picker returned resultCode=${result.resultCode}, uri=$uri")
+        if (result.resultCode == Activity.RESULT_OK && uri != null) {
+            presenter.onCustomUserDataFolderPicked(uri)
+        } else {
+            Log.info("[CustomLocation] Picker cancelled or returned no folder — mode unchanged")
+        }
+    }
+
+    override fun launchCustomUserDataFolderPicker() {
+        Log.info("[CustomLocation] Launching ACTION_OPEN_DOCUMENT_TREE folder picker")
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+        requestUserDataFolder.launch(intent)
     }
 
     override fun onAttach(context: Context) {
