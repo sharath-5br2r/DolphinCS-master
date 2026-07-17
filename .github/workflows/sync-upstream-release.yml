@@ -65,7 +65,10 @@ jobs:
     needs: check
     if: ${{ needs.check.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
-
+    env:
+      SCCACHE_GHA_ENABLED: "on"              # Activates GitHub Actions cache backend
+      CMAKE_C_COMPILER_LAUNCHER: "sccache"   # Directs CMake C compiler to route through sccache
+      CMAKE_CXX_COMPILER_LAUNCHER: "sccache" # Directs CMake C++ compiler to route through sccache
     steps:
       - name: Checkout feature branch
         uses: actions/checkout@v4
@@ -116,7 +119,10 @@ jobs:
           echo "  git checkout -B release-sync master"
           echo "  git merge FETCH_HEAD"
           exit 1
-
+          
+      - name: Set up sccache
+        if: steps.merge.outputs.conflict == 'false'
+        uses: mozilla-actions/sccache-action@v0.0.8
       - name: Update submodules
         if: steps.merge.outputs.conflict == 'false'
         run: git submodule update --init --recursive
@@ -222,6 +228,7 @@ jobs:
 
       - name: Tag sync marker
         if: steps.merge.outputs.conflict == 'false'
+        continue-on-error: true
         run: |
           git tag "sync/pr-${{ needs.check.outputs.pr_number }}"
           git push origin "sync/pr-${{ needs.check.outputs.pr_number }}"
