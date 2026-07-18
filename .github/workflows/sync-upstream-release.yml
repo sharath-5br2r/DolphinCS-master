@@ -183,7 +183,7 @@ jobs:
         run: |
           set -euo pipefail
           YEAR=$(date -u +"%y")
-          TAG=$( { gh release list -R sharath-5br2r/patched-apks-builder-2nd --exclude-drafts -L 100 2>/dev/null || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -nr | head -n1 )
+          TAG=$( { gh release list -R sharath-5br2r/my-patched-apks --exclude-drafts -L 100 2>/dev/null || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -nr | head -n1 )
           if [ -n "$TAG" ]; then
               BUILD_COUNT=${TAG:2:4}
               BUILD_COUNT=$((10#$BUILD_COUNT + 1))
@@ -207,7 +207,7 @@ jobs:
           tag_name: beta
           overwrite_files: true
           prerelease: true
-          repository: sharath-5br2r/patched-apks-builder-2nd
+          repository: sharath-5br2r/my-patched-apks
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
       - name: Publish release
         if: steps.merge.outputs.conflict == 'false'
@@ -216,7 +216,7 @@ jobs:
           tag_name: ${{ steps.version.outputs.NEXT_VER_CODE }}
           name: Build No. ${{ steps.version.outputs.NEXT_VER_CODE }} 
           prerelease: true
-          repository: sharath-5br2r/patched-apks-builder-2nd
+          repository: sharath-5br2r/my-patched-apks
           overwrite_files: true
           make_latest: true
           files: |
