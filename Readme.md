@@ -25,7 +25,7 @@ Nothing else is added, removed, or changed.
 
 Releases here are built automatically every pull request. See the
 [My Patched APKs](https://sharath-5br2r.github.io/my-patched-apkz) for builds.
-The releases are uploaded to [patched-apks-builder-2nd](https://github.com/sharath-5br2r/my-patched-apks/) with other patches,
+The releases are uploaded to [my-patched-apks](https://github.com/sharath-5br2r/my-patched-apks/) with other patches,
 
 ## License
 
