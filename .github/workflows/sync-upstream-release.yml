@@ -2,7 +2,7 @@ name: Sync And Build
 permissions: write-all
 on:
   schedule:
-    - cron: '0 1/4 * * *'
+    - cron: '0 1/2 * * *'
   workflow_dispatch:
 
 # Only one run of this workflow at a time. A new trigger queues instead of running
