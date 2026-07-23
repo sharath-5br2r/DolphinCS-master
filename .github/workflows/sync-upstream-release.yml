@@ -124,7 +124,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        flavor: [stock, gfp]
+        include:
+          - flavor: stock
+            task: assembleStockRelease
+          - flavor: gfp
+            task: assembleGfpRelease
     env:
       CMAKE_C_COMPILER_LAUNCHER: "ccache"
       CMAKE_CXX_COMPILER_LAUNCHER: "ccache"
@@ -169,17 +173,14 @@ jobs:
           PR_NUM="${{ needs.check.outputs.pr_number }}"
           SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
           
-          # Capitalize first letter of flavor for Gradle task name (e.g., stock -> Stock)
-          FLAVOR_CAP="$(tr '[:lower:]' '[:upper:]' <<< "${matrix.flavor:0:1}")${matrix.flavor:1}"
-          
-          ./gradlew "assemble${FLAVOR_CAP}Release" --no-daemon \
+          ./gradlew ${{ matrix.task }} --no-daemon \
             -Pkeystore="$RUNNER_TEMP/dolphincs-release.p12" \
             -Pstorepass="${{ secrets.KEYSTORE_PASS }}" \
             -Pkeyalias="${{ secrets.KEYSTORE_ALIAS }}" \
             -Pkeypass="${{ secrets.KEYSTORE_PASS }}"
           
           mkdir -p ../../artifact
-          mv app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk "../../artifact/Dolphin-Extra-${{ matrix.flavor }}${SUFFIX}-Android-all.apk"
+          mv app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk "../../artifact/Dolphin-Extra-${{ matrix.flavor }}${SUFFIX}-android-all.apk"
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
 
@@ -193,6 +194,7 @@ jobs:
           name: android-${{ matrix.flavor }}-build
           path: ./artifact/*.apk
           retention-days: 1
+
 
 
   # ==========================================
@@ -224,7 +226,6 @@ jobs:
       - uses: libsdl-org/setup-sdl@main
         id: sdl
         with:
-          install-linux-dependencies: true
           version: 2-latest
           version-sdl-image: 2-latest
 
