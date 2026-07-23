@@ -8,16 +8,6 @@ plugins {
 @Suppress("UnstableApiUsage")
 android {
     compileSdk = 37
-plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.androidx.baselineprofile)
-}
-
-@Suppress("UnstableApiUsage")
-android {
-    compileSdk = 37
     ndkVersion = "30.0.15729638"
 
     buildFeatures {
