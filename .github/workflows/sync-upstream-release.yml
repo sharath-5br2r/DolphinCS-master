@@ -12,10 +12,9 @@ concurrency:
 
 jobs:
   # ==========================================
-  # 1. CHECK JOB (Scheduled PR check)
+  # 1. CHECK JOB (Determines PR number)
   # ==========================================
   check:
-    if: ${{ github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     outputs:
       pr_number: ${{ steps.latest.outputs.pr_number }}
@@ -42,6 +41,12 @@ jobs:
         run: |
           TAG="pr-${{ steps.latest.outputs.pr_number }}"
 
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Triggered via workflow_dispatch; forcing run for $TAG"
+            exit 0
+          fi
+
           if git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" \
               "refs/tags/sync/$TAG" >/dev/null 2>&1; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
@@ -58,7 +63,7 @@ jobs:
   # ==========================================
   sync:
     needs: check
-    if: ${{ needs.check.outputs.should_run == 'true' }}
+    if: ${{ github.event_name == 'schedule' && needs.check.outputs.should_run == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout feature branch
@@ -209,7 +214,6 @@ jobs:
           retention-days: 1
 
 
-
   # ==========================================
   # 3B. BUILD JOB - WINDOWS
   # ==========================================
@@ -265,7 +269,7 @@ jobs:
         run: |
           PR_NUM="${{ needs.check.outputs.pr_number }}"
           SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
-          FILE_NAME="Dolphin-Extra-${SUFFIX}-x86_64-Windows.zip"
+          FILE_NAME="Dolphin-Extra${SUFFIX}-x86_64-Windows.zip"
           
           mkdir -p artifact
           cd .\Binary\x64\
