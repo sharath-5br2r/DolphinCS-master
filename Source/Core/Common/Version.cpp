@@ -9,7 +9,7 @@
 
 namespace Common
 {
-#define EMULATOR_NAME "Better Wii Menu DE"
+#define EMULATOR_NAME "Dolphin"
 
 #ifdef _DEBUG
 #define BUILD_TYPE_STR "Debug "
