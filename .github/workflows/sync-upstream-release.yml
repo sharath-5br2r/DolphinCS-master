@@ -120,20 +120,12 @@ jobs:
 
 
   # ==========================================
-  # 3A. BUILD JOB - ANDROID (Flavors Matrix)
+  # 3A. BUILD JOB - ANDROID (Monolithic Build)
   # ==========================================
   android:
     needs: [check, sync]
     if: always() && (github.event_name == 'workflow_dispatch' || needs.sync.result == 'success')
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - flavor: stock
-            task: assembleStockRelease
-          - flavor: gfp
-            task: assembleGfpRelease
     env:
       CMAKE_C_COMPILER_LAUNCHER: "ccache"
       CMAKE_CXX_COMPILER_LAUNCHER: "ccache"
@@ -147,7 +139,7 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ccache-android-${{ matrix.flavor }}-${{ runner.os }}
+          key: ccache-android-monolithic-${{ runner.os }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -166,39 +158,65 @@ jobs:
         uses: actions/cache@v4
         with:
           path: Source/Android/.cxx
-          key: cxx-${{ matrix.flavor }}-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'Source/Core/**/*.cpp', 'Source/Core/**/*.h') }}
-          restore-keys: cxx-${{ matrix.flavor }}-${{ runner.os }}-
+          key: cxx-monolithic-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', 'Source/Core/**/*.cpp', 'Source/Core/**/*.h') }}
+          restore-keys: cxx-monolithic-${{ runner.os }}-
 
       - name: Decode release keystore
         run: echo "${{ secrets.KEYSTORE_P12 }}" | base64 -d > "$RUNNER_TEMP/dolphincs-release.p12"
 
-      - name: Build release APK (${{ matrix.flavor }})
+      - name: Build All Release APKs (Stock & GFP)
         working-directory: Source/Android
         run: |
           PR_NUM="${{ needs.check.outputs.pr_number }}"
           SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
 
-          TASK="${{ matrix.task }}"
-          APK_PATH="app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk"
-          if [[ "${{ matrix.flavor }}" == "gfp" ]] && ! ./gradlew -q tasks --all --no-daemon | grep -q "assembleGfpRelease"; then
-            TASK="assembleRelease"
-            APK_PATH="app/build/outputs/apk/release/app-release.apk"
-          fi
+          chmod +x gradlew
 
-          ./gradlew "$TASK" --no-daemon \
+          # Query available tasks dynamically
+          AVAILABLE_TASKS=$(./gradlew tasks --all --no-daemon)
+
+          FLAVORS=("stock" "gfp")
+          TASKS_TO_RUN=()
+
+          for FLAVOR in "${FLAVORS[@]}"; do
+            FLAVOR_CAP="$(tr '[:lower:]' '[:upper:]' <<< ${FLAVOR:0:1})${FLAVOR:1}"
+            MATCHED_TASK=$(echo "$AVAILABLE_TASKS" | awk '/^assemble.*Release/ {print $1}' | grep -i "$FLAVOR" | head -n 1)
+
+            if [ -n "$MATCHED_TASK" ]; then
+              TASKS_TO_RUN+=("$MATCHED_TASK")
+            else
+              TASKS_TO_RUN+=("assemble${FLAVOR_CAP}Release")
+            fi
+          done
+
+          echo "Executing monolithic build for tasks: ${TASKS_TO_RUN[*]}"
+
+          ./gradlew "${TASKS_TO_RUN[@]}" --no-daemon \
             -Pkeystore="$RUNNER_TEMP/dolphincs-release.p12" \
             -Pstorepass="${{ secrets.KEYSTORE_PASS }}" \
             -Pkeyalias="${{ secrets.KEYSTORE_ALIAS }}" \
             -Pkeypass="${{ secrets.KEYSTORE_PASS }}"
 
-          if [[ ! -f "$APK_PATH" ]]; then
-            echo "Expected APK not found at $APK_PATH"
-            find app/build/outputs/apk -maxdepth 4 -type f -name "*.apk" -print
+          mkdir -p ../../artifact
+
+          # Package each flavor's APK
+          for FLAVOR in "${FLAVORS[@]}"; do
+            FOUND_APK=$(find app/build/outputs/apk -type f -name "*.apk" ! -name "*unaligned*" | grep -i "$FLAVOR" | head -n 1)
+
+            if [[ -n "$FOUND_APK" ]]; then
+              echo "Found $FLAVOR APK at: $FOUND_APK"
+              mv "$FOUND_APK" "../../artifact/Dolphin-Extra-${FLAVOR}${SUFFIX}-android-all.apk"
+            else
+              echo "⚠️ Warning: Could not locate APK specifically for flavor '$FLAVOR'"
+            fi
+          done
+
+          # Fallback check if specific flavor paths weren't isolated
+          if [ -z "$(ls -A ../../artifact/*.apk 2>/devnull)" ]; then
+            echo "❌ No flavor APKs were matched. Listing all generated APKs:"
+            find app/build/outputs/apk -maxdepth 5 -type f -name "*.apk" -print
             exit 1
           fi
-
-          mkdir -p ../../artifact
-          mv "$APK_PATH" "../../artifact/Dolphin-Extra-${{ matrix.flavor }}${SUFFIX}-android-all.apk"
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
 
@@ -209,10 +227,9 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: android-${{ matrix.flavor }}-build
+          name: android-monolithic-build
           path: ./artifact/*.apk
           retention-days: 1
-
 
   # ==========================================
   # 3B. BUILD JOB - WINDOWS
