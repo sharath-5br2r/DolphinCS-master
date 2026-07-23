@@ -1,4 +1,4 @@
-name: Sync And Build
+Name: Sync And Build
 permissions: write-all
 
 on:
@@ -103,7 +103,7 @@ jobs:
       - name: Report merge conflict
         if: steps.merge.outputs.conflict == 'true'
         run: |
-          echo "Automatic merge of upstream PR '#${{ needs.check.outputs.pr_number }}' produced conflicts 💥"
+          echo "Automatic merge of upstream PR '#${{ needs.check.outputs.pr_number }}' produced conflicts"
           exit 1
 
       - name: Update submodules
@@ -120,7 +120,7 @@ jobs:
 
 
   # ==========================================
-  # 3A. BUILD JOB - ANDROID (Matrix Strategy)
+  # 3A. BUILD JOB - ANDROID (Flavors Matrix)
   # ==========================================
   android:
     needs: [check, sync]
@@ -138,10 +138,10 @@ jobs:
       CMAKE_C_COMPILER_LAUNCHER: "ccache"
       CMAKE_CXX_COMPILER_LAUNCHER: "ccache"
     steps:
-      - name: Checkout merged release-sync branch
+      - name: Checkout target branch (master for workflow_dispatch, release-sync for schedule)
         uses: actions/checkout@v4
         with:
-          ref: release-sync
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || 'release-sync' }}
           submodules: recursive
 
       - name: Setup ccache
@@ -176,7 +176,11 @@ jobs:
         working-directory: Source/Android
         run: |
           PR_NUM="${{ needs.check.outputs.pr_number }}"
-          SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
+          if [ -n "$PR_NUM" ]; then
+            SUFFIX="-vpr$PR_NUM"
+          else
+            SUFFIX="-manual"
+          fi
 
           chmod +x gradlew
 
@@ -190,11 +194,9 @@ jobs:
 
           mkdir -p ../../artifact
 
-          # Locate generated release APK for this flavor
           FOUND_APK=$(find app/build/outputs/apk/${{ matrix.flavor }}/release -type f -name "*.apk" ! -name "*unaligned*" | head -n 1)
 
           if [ -z "$FOUND_APK" ]; then
-            # Broad search fallback
             FOUND_APK=$(find app/build/outputs/apk -type f -name "*.apk" ! -name "*unaligned*" | grep -i "${{ matrix.flavor }}" | head -n 1)
           fi
 
@@ -202,7 +204,7 @@ jobs:
             echo "Found APK at: $FOUND_APK"
             mv "$FOUND_APK" "../../artifact/Dolphin-Extra-${{ matrix.flavor }}${SUFFIX}-android-all.apk"
           else
-            echo "❌ Failed to locate APK for flavor '${{ matrix.flavor }}'!"
+            echo "Failed to locate APK for flavor '${{ matrix.flavor }}'!"
             exit 1
           fi
         env:
@@ -219,6 +221,7 @@ jobs:
           path: ./artifact/*.apk
           retention-days: 1
 
+
   # ==========================================
   # 3B. BUILD JOB - WINDOWS
   # ==========================================
@@ -230,10 +233,10 @@ jobs:
       CMAKE_C_COMPILER_LAUNCHER: "ccache"
       CMAKE_CXX_COMPILER_LAUNCHER: "ccache"
     steps:
-      - name: Checkout merged release-sync branch
+      - name: Checkout target branch (master for workflow_dispatch, release-sync for schedule)
         uses: actions/checkout@v4
         with:
-          ref: release-sync
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || 'release-sync' }}
           submodules: recursive
 
       - name: Install Dependencies
@@ -272,23 +275,20 @@ jobs:
         shell: bash
         working-directory: ${{ github.workspace }}
         run: |
-          set -euo pipefail
-
           PR_NUM="${{ needs.check.outputs.pr_number }}"
-          SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
+          if [ -n "$PR_NUM" ]; then
+            SUFFIX="-vpr$PR_NUM"
+          else
+            SUFFIX="-manual"
+          fi
           FILE_NAME="Dolphin-Extra${SUFFIX}-x86_64-Windows.zip"
-
-          ARTIFACT_DIR="$GITHUB_WORKSPACE/artifact"
-          BIN_DIR="$GITHUB_WORKSPACE/Binary/x64"
-
-          mkdir -p "$ARTIFACT_DIR"
-          cd "$BIN_DIR"
-
+          
+          mkdir -p artifact
+          cd .\Binary\x64\
           attrib +r Sys\*.* /s || true
           fsutil file createnew portable.txt 0
-          7z a "$FILE_NAME" ./*
-
-          mv "$FILE_NAME" "$ARTIFACT_DIR/"
+          7z a "$FILE_NAME" .\*
+          mv "$FILE_NAME" ../../artifact/
 
       - name: "Upload Artifact"
         uses: actions/upload-artifact@v4
@@ -309,16 +309,16 @@ jobs:
       CMAKE_C_COMPILER_LAUNCHER: "ccache"
       CMAKE_CXX_COMPILER_LAUNCHER: "ccache"
     steps:
-      - name: Checkout merged release-sync branch
+      - name: Checkout target branch (master for workflow_dispatch, release-sync for schedule)
         uses: actions/checkout@v4
         with:
-          ref: release-sync
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || 'release-sync' }}
           submodules: recursive
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt install pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev libegl1-mesa-dev libavcodec-dev libavformat-dev libavutil-dev libswresample-dev libswscale-dev libudev-dev libevdev-dev libsdl3-dev libfmt-dev glslang-dev glslang-tools libpugixml-dev libenet-dev libxxhash-dev libbz2-dev liblzma-dev libzstd-dev zlib1g-dev libminizip-ng-dev liblzo2-dev liblz4-dev libspng-dev libcubeb-dev libusb-1.0-0-dev libsfml-dev libminiupnpc-dev libcurl4-openssl-dev libhidapi-dev libsystemd-dev libgtest-dev libasound2-dev libpulse-dev llvm-dev libbluetooth-dev qt6-base-dev qt6-base-private-dev qt6-svg-dev gettext
+          sudo apt install libcurl4-openssl-dev build-essential git cmake ffmpeg libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libevdev-dev libudev-dev libxrandr-dev libxi-dev libpulse-dev libqt6svg6-dev libasound2-dev libgudev-1.0-dev liblzma-dev libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev libsoundtouch-dev libminiupnpc-dev libmbedtls-dev libao-dev libbluetooth-dev libreadline-dev libusb-1.0-0-dev qt6-base-dev qt6-base-private-dev qt6-tools-dev-tools libzstd-dev libzstd1 ninja-build ccache p7zip-full libarchive-dev libc6-i386 gcc-multilib g++-multilib -y
           sudo apt install libudev-dev libsystemd-dev -y || sudo apt install libeudev-dev -y
 
       - name: Setup ccache
@@ -343,7 +343,11 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: |
           PR_NUM="${{ needs.check.outputs.pr_number }}"
-          SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
+          if [ -n "$PR_NUM" ]; then
+            SUFFIX="-vpr$PR_NUM"
+          else
+            SUFFIX="-manual"
+          fi
           FILE_NAME="Dolphin-Extra${SUFFIX}-x86_64-Linux.zip"
 
           mkdir -p artifact
@@ -381,7 +385,7 @@ jobs:
         run: |
           set -euo pipefail
           YEAR=$(date -u +"%y")
-          TAG=$( { gh release list -R sharath-5br2r/my-patched-apks --exclude-drafts -L 100 2>/dev/null || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -r | head -n1 )
+          TAG=$( { gh release list -R sharath-5br2r/my-patched-apks --exclude-drafts -L 100 2>/devnull || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -r | head -n 1 )
           if [ -n "$TAG" ]; then
               BUILD_COUNT=${TAG:2:4}
               BUILD_COUNT=$((10#$BUILD_COUNT + 1))
@@ -418,5 +422,5 @@ jobs:
             Built from custom release-sync branch, merged with the
             custom user data storage location feature (Scoped Storage / Internal Storage / SD Card) and Games on Wii Menu Patch
 
-            This is an unofficial community build, not affiliated with the Dolphin team. 🎉
+            This is an unofficial community build, not affiliated with the Dolphin team.
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
