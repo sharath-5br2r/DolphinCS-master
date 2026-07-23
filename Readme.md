@@ -1,5 +1,6 @@
-## DolphinCS Main
-DolphinCS Main incorporates aspects of [DolphinCS](https://github.com/JoeysRetroHandhelds/DolphinCS) but instead syncs to pull requests. All branding is removed and the apk is spoofed to Game for Peace`com.tencent.tmgp.pubgmhd`  for performance.
+## Dolphin Extra
+Dolphin Extra incorporates aspects of [DolphinCS](https://github.com/JoeysRetroHandhelds/DolphinCS) and [Better Wii Menu DE](https://github.com/Gavin-S-Dev/Better-Wii-Menu-DE) but instead syncs to pull requests. All branding is removed and the apk is spoofed to Game for Peace`com.tencent.tmgp.pubgmhd`  for performance.
+Better Wii Menu DE is also ported to Android using AI.
 
 ## Modified Original Readme
 
