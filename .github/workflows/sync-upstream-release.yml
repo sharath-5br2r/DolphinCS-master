@@ -1,4 +1,4 @@
-Name: Sync And Build
+name: Sync And Build
 permissions: write-all
 
 on:
@@ -179,7 +179,7 @@ jobs:
             -Pkeypass="${{ secrets.KEYSTORE_PASS }}"
           
           mkdir -p ../../artifact
-          mv app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk "../../artifact/dolphin-cs-${{ matrix.flavor }}${SUFFIX}-android.apk"
+          mv app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk "../../artifact/Dolphin-Extra-${{ matrix.flavor }}${SUFFIX}-Android-all.apk"
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
 
@@ -251,7 +251,7 @@ jobs:
         run: |
           PR_NUM="${{ needs.check.outputs.pr_number }}"
           SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
-          FILE_NAME="dolphin-cs${SUFFIX}-windows.zip"
+          FILE_NAME="Dolphin-Extra-${SUFFIX}-x86_64-Windows.zip"
           
           mkdir -p artifact
           cd .\Binary\x64\
@@ -314,7 +314,7 @@ jobs:
         run: |
           PR_NUM="${{ needs.check.outputs.pr_number }}"
           SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
-          FILE_NAME="dolphin-cs${SUFFIX}-linux.zip"
+          FILE_NAME="Dolphin-Extra${SUFFIX}-x86_64-Linux.zip"
 
           mkdir -p artifact
           cd build/Binaries
@@ -378,7 +378,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.NEXT_VER_CODE }}
-          name: Build No. ${{ steps.version.outputs.NEXT_VER_CODE }} 
+          name: Build No. ${{ steps.version.outputs.NEXT_VER_CODE }} (Dolphin Extra)
           prerelease: true
           repository: sharath-5br2r/my-patched-apks
           overwrite_files: true
@@ -386,7 +386,7 @@ jobs:
           files: ./release-files/*
           body: |
             Built from custom release-sync branch, merged with the
-            custom user data storage location feature (Scoped Storage / Internal Storage / SD Card).
+            custom user data storage location feature (Scoped Storage / Internal Storage / SD Card) and Games on Wii Menu Patch
 
             This is an unofficial community build, not affiliated with the Dolphin team. 🎉
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
