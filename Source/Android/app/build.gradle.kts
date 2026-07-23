@@ -230,7 +230,7 @@ fun getGitHash(): String {
             .redirectOutput(ProcessBuilder.Redirect.PIPE)
             .redirectError(ProcessBuilder.Redirect.PIPE)
             .start().inputStream.bufferedReader().use { it.readText() }
-            .trim"
+            .trim()
     } catch (e: Exception) {
         logger.error("Cannot find git, defaulting to dummy git hash")
     }
