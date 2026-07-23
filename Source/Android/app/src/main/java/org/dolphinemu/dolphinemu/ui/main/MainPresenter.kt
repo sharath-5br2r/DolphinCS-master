@@ -103,6 +103,18 @@ class MainPresenter(private val mainView: MainView, private val activity: Fragme
         }
     }
 
+    private val requestDiscForWiiMenuFile = activity.registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            FileBrowserHelper.runAfterExtensionCheck(
+                activity, uri, FileBrowserHelper.GAME_EXTENSIONS
+            ) { installDiscImageToWiiMenu(uri.toString()) }
+        } else {
+            skipRescanningLibrary()
+        }
+    }
+
     fun onCreate() {
         // Ask the user to grant write permission if relevant and not already granted
         if (DirectoryInitialization.isWaitingForWriteAccess(activity)) {
@@ -172,6 +184,13 @@ class MainPresenter(private val mainView: MainView, private val activity: Fragme
             AfterDirectoryInitializationRunner().runWithLifecycle(
                 activity
             ) { requestWadFile.launch("*/*") }
+            true
+        }
+
+        R.id.menu_disc_to_wii_menu -> {
+            AfterDirectoryInitializationRunner().runWithLifecycle(
+                activity
+            ) { requestDiscForWiiMenuFile.launch("*/*") }
             true
         }
 
@@ -263,6 +282,16 @@ class MainPresenter(private val mainView: MainView, private val activity: Fragme
                 val success = WiiUtils.installWAD(path!!)
                 val message =
                     if (success) R.string.wad_install_success else R.string.wad_install_failure
+                activity.getString(message)
+            })
+    }
+
+    fun installDiscImageToWiiMenu(path: String?) {
+        ThreadUtil.runOnThreadAndShowResult(
+            activity, R.string.import_in_progress, 0, {
+                val success = WiiUtils.installForwarder(path!!)
+                val message =
+                    if (success) R.string.add_to_wii_menu_success else R.string.add_to_wii_menu_failure
                 activity.getString(message)
             })
     }

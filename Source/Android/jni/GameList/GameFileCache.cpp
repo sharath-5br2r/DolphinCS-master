@@ -8,7 +8,10 @@
 
 #include <jni.h>
 
+#include "Common/Logging/Log.h"
 #include "Core/Config/MainSettings.h"
+#include "Core/WiiForwarder.h"
+#include "DiscIO/Enums.h"
 #include "UICommon/GameFileCache.h"
 #include "jni/AndroidCommon/AndroidCommon.h"
 #include "jni/AndroidCommon/IDCache.h"
@@ -81,13 +84,48 @@ JNIEXPORT jobject JNICALL Java_org_dolphinemu_dolphinemu_model_GameFileCache_add
                                                                                       jstring path)
 {
   bool cache_changed = false;
-  return GameFileToJava(env, GetPointer(env, obj)->AddOrGet(GetJString(env, path), &cache_changed));
+  auto game = GetPointer(env, obj)->AddOrGet(GetJString(env, path), &cache_changed);
+  if (cache_changed && game && game->GetPlatform() == DiscIO::Platform::WiiDisc &&
+      !WiiForwarder::IsForwarderInstalled(game->GetFilePath()))
+  {
+    if (WiiForwarder::InstallForwarder(game->GetFilePath(), /*silent=*/true))
+    {
+      INFO_LOG_FMT(CORE, "Auto-installed Wii Menu forwarder for '{}'", game->GetFilePath());
+    }
+  }
+  return GameFileToJava(env, game);
 }
 
 JNIEXPORT jboolean JNICALL Java_org_dolphinemu_dolphinemu_model_GameFileCache_update(
     JNIEnv* env, jobject obj, jobjectArray game_paths)
 {
-  return GetPointer(env, obj)->Update(JStringArrayToVector(env, game_paths));
+  return GetPointer(env, obj)->Update(
+      JStringArrayToVector(env, game_paths),
+      [](const std::shared_ptr<const UICommon::GameFile>& game) {
+        if (game->GetPlatform() == DiscIO::Platform::WiiDisc &&
+            !WiiForwarder::IsForwarderInstalled(game->GetFilePath()))
+        {
+          if (WiiForwarder::InstallForwarder(game->GetFilePath(), /*silent=*/true))
+          {
+            INFO_LOG_FMT(CORE, "Auto-installed Wii Menu forwarder for '{}'", game->GetFilePath());
+          }
+        }
+      },
+      [](const std::string& path) {
+        if (WiiForwarder::IsForwarderInstalled(path))
+        {
+          const auto forwarders = WiiForwarder::GetInstalledForwarders();
+          for (const auto& [tid, disc_path] : forwarders)
+          {
+            if (disc_path == path)
+            {
+              WiiForwarder::UninstallForwarder(tid);
+              INFO_LOG_FMT(CORE, "Auto-removed Wii Menu forwarder for '{}'", path);
+              break;
+            }
+          }
+        }
+      });
 }
 
 JNIEXPORT jboolean JNICALL

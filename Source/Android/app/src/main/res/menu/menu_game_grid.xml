@@ -32,6 +32,11 @@
         app:showAsAction="never"/>
 
     <item
+        android:id="@+id/menu_disc_to_wii_menu"
+        android:title="@string/grid_menu_disc_to_wii_menu"
+        app:showAsAction="never"/>
+
+    <item
         android:id="@+id/menu_load_wii_system_menu"
         android:title="@string/grid_menu_load_wii_system_menu"
         app:showAsAction="never"/>

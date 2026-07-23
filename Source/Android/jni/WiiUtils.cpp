@@ -15,6 +15,7 @@
 #include "Core/HW/WiiSave.h"
 #include "Core/IOS/ES/ES.h"
 #include "Core/IOS/IOS.h"
+#include "Core/WiiForwarder.h"
 #include "Core/WiiUtils.h"
 
 #include "DiscIO/NANDImporter.h"
@@ -198,5 +199,37 @@ JNIEXPORT jboolean JNICALL
 Java_org_dolphinemu_dolphinemu_utils_WiiUtils_syncSdImageToSdFolder(JNIEnv* env, jclass)
 {
   return static_cast<jboolean>(Common::SyncSDImageToSDFolder([]() { return false; }));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_utils_WiiUtils_isForwarderInstalled(JNIEnv* env, jclass,
+                                                                   jstring jPath)
+{
+  const std::string path = GetJString(env, jPath);
+  return static_cast<jboolean>(WiiForwarder::IsForwarderInstalled(path));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_utils_WiiUtils_installForwarder(JNIEnv* env, jclass,
+                                                                 jstring jPath)
+{
+  const std::string path = GetJString(env, jPath);
+  return static_cast<jboolean>(WiiForwarder::InstallForwarder(path));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_dolphinemu_dolphinemu_utils_WiiUtils_uninstallForwarder(JNIEnv* env, jclass,
+                                                                   jstring jPath)
+{
+  const std::string path = GetJString(env, jPath);
+  const auto forwarders = WiiForwarder::GetInstalledForwarders();
+  for (const auto& [tid, disc_path] : forwarders)
+  {
+    if (disc_path == path)
+    {
+      return static_cast<jboolean>(WiiForwarder::UninstallForwarder(tid));
+    }
+  }
+  return JNI_FALSE;
 }
 }

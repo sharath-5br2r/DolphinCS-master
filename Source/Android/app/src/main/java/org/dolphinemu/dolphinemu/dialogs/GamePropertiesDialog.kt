@@ -23,6 +23,7 @@ import org.dolphinemu.dolphinemu.ui.platform.Platform
 import org.dolphinemu.dolphinemu.utils.AlertDialogItemsBuilder
 import org.dolphinemu.dolphinemu.utils.DirectoryInitialization
 import org.dolphinemu.dolphinemu.utils.Log
+import org.dolphinemu.dolphinemu.utils.WiiUtils
 import java.io.File
 
 class GamePropertiesDialog : DialogFragment() {
@@ -69,6 +70,22 @@ class GamePropertiesDialog : DialogFragment() {
         if (isDisc && isWii) {
             itemsBuilder.add(R.string.properties_system_update) { _, _ ->
                 MainPresenter.launchDiscUpdate(path, requireActivity())
+            }
+
+            if (platform == Platform.WII.toInt()) {
+                if (WiiUtils.isForwarderInstalled(path)) {
+                    itemsBuilder.add(R.string.properties_remove_from_wii_menu) { _, _ ->
+                        val success = WiiUtils.uninstallForwarder(path)
+                        val msg = if (success) R.string.remove_from_wii_menu_success else R.string.remove_from_wii_menu_failure
+                        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    itemsBuilder.add(R.string.properties_add_to_wii_menu) { _, _ ->
+                        val success = WiiUtils.installForwarder(path)
+                        val msg = if (success) R.string.add_to_wii_menu_success else R.string.add_to_wii_menu_failure
+                        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
         }
 

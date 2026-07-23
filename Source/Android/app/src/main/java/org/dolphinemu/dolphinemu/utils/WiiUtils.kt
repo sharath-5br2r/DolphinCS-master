@@ -43,4 +43,13 @@ object WiiUtils {
 
     @JvmStatic
     external fun syncSdImageToSdFolder(): Boolean
+
+    @JvmStatic
+    external fun isForwarderInstalled(path: String): Boolean
+
+    @JvmStatic
+    external fun installForwarder(path: String): Boolean
+
+    @JvmStatic
+    external fun uninstallForwarder(path: String): Boolean
 }

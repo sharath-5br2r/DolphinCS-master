@@ -49,6 +49,7 @@
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/State.h"
 #include "Core/System.h"
+#include "Core/WiiForwarder.h"
 #include "jni/NetPlay/NetPlayUICallbacks.h"
 
 #include "DiscIO/Blob.h"
@@ -586,6 +587,13 @@ static void Run(JNIEnv* env, std::unique_ptr<BootParameters>&& boot, bool riivol
 
   s_game_metadata_is_valid = false;
   Core::Shutdown(Core::System::GetInstance());
+
+  const std::string forwarder_boot_path = WiiForwarder::ConsumePendingForwarderBoot();
+  if (!forwarder_boot_path.empty())
+  {
+    Run(env, BootParameters::GenerateFromFile(forwarder_boot_path), false);
+    return;
+  }
 
   env->CallStaticVoidMethod(IDCache::GetNativeLibraryClass(),
                             IDCache::GetFinishEmulationActivity());

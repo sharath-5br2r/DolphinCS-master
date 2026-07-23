@@ -531,6 +531,7 @@
     <string name="grid_menu_refresh">Refresh Library</string>
     <string name="grid_menu_open_file">Open File</string>
     <string name="grid_menu_install_wad">Install WAD</string>
+    <string name="grid_menu_disc_to_wii_menu">Add Disc Image to Wii Menu…</string>
     <string name="grid_menu_import_wii_save">Import Wii Save</string>
     <string name="grid_menu_import_nand_backup">Import BootMii NAND Backup</string>
     <string name="grid_menu_online_system_update">Perform Online System Update</string>
@@ -559,6 +560,12 @@
     <string name="properties_set_default_iso">Set as Default ISO</string>
     <string name="properties_convert">Convert File</string>
     <string name="properties_system_update">Perform System Update</string>
+    <string name="properties_add_to_wii_menu">Add to Wii Menu</string>
+    <string name="properties_remove_from_wii_menu">Remove from Wii Menu</string>
+    <string name="add_to_wii_menu_success">Successfully added game to the Wii Menu.</string>
+    <string name="add_to_wii_menu_failure">Failed to add game to the Wii Menu.</string>
+    <string name="remove_from_wii_menu_success">Successfully removed game from the Wii Menu.</string>
+    <string name="remove_from_wii_menu_failure">Failed to remove game from the Wii Menu.</string>
     <string name="properties_edit_game_settings">Edit Game Settings</string>
     <string name="properties_edit_cheats">Edit Cheats</string>
     <string name="properties_clear_game_settings">Clear Game Settings and Cheats</string>
