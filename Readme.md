@@ -11,8 +11,7 @@ Better Wii Menu DE is also ported to Android using AI.
 DolphinCS is an unofficial fork of [Dolphin](https://github.com/dolphin-emu/dolphin), the
 GameCube/Wii emulator. It is **not affiliated with the Dolphin Emulator project**.
 
-This fork changes **where Dolphin stores its user data on Android**. Everything
-else is identical to upstream Dolphin.
+This fork changes **where Dolphin stores its user data on Android**.
 
 ## What's different
 
