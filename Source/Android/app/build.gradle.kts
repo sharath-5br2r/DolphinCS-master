@@ -114,7 +114,9 @@ android {
                 arguments(
                     "-DANDROID_STL=c++_static",
                     "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
-                    "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+                    "-DCMAKE_BUILD_TYPE=RelWithDebInfo",
+                    "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+                    "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
                     // , "-DENABLE_GENERIC=ON"
                 )
                 abiFilters("arm64-v8a", "x86_64") //, "armeabi-v7a", "x86"
@@ -228,7 +230,7 @@ fun getGitHash(): String {
             .redirectOutput(ProcessBuilder.Redirect.PIPE)
             .redirectError(ProcessBuilder.Redirect.PIPE)
             .start().inputStream.bufferedReader().use { it.readText() }
-            .trim()
+            .trim"
     } catch (e: Exception) {
         logger.error("Cannot find git, defaulting to dummy git hash")
     }
