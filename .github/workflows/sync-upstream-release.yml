@@ -172,15 +172,28 @@ jobs:
         run: |
           PR_NUM="${{ needs.check.outputs.pr_number }}"
           SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
-          
-          ./gradlew ${{ matrix.task }} --no-daemon \
+
+          TASK="${{ matrix.task }}"
+          APK_PATH="app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk"
+          if [[ "${{ matrix.flavor }}" == "gfp" ]] && ! ./gradlew -q tasks --all --no-daemon | grep -q "assembleGfpRelease"; then
+            TASK="assembleRelease"
+            APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          fi
+
+          ./gradlew "$TASK" --no-daemon \
             -Pkeystore="$RUNNER_TEMP/dolphincs-release.p12" \
             -Pstorepass="${{ secrets.KEYSTORE_PASS }}" \
             -Pkeyalias="${{ secrets.KEYSTORE_ALIAS }}" \
             -Pkeypass="${{ secrets.KEYSTORE_PASS }}"
-          
+
+          if [[ ! -f "$APK_PATH" ]]; then
+            echo "Expected APK not found at $APK_PATH"
+            find app/build/outputs/apk -maxdepth 4 -type f -name "*.apk" -print
+            exit 1
+          fi
+
           mkdir -p ../../artifact
-          mv app/build/outputs/apk/${{ matrix.flavor }}/release/app-${{ matrix.flavor }}-release.apk "../../artifact/Dolphin-Extra-${{ matrix.flavor }}${SUFFIX}-android-all.apk"
+          mv "$APK_PATH" "../../artifact/Dolphin-Extra-${{ matrix.flavor }}${SUFFIX}-android-all.apk"
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
 
