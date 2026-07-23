@@ -215,7 +215,7 @@ jobs:
           submodules: recursive
 
       - name: Install Dependencies
-        run: choco install pkgconfiglite curl ninja
+        run: choco install pkgconfiglite curl ninja nasm -y
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -289,7 +289,7 @@ jobs:
       - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt install libcurl4-openssl-dev build-essential git cmake ffmpeg libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libevdev-dev libudev-dev libxrandr-dev libxi-dev libpangocairo-1.0-0 qt6-base-dev qt6-base-private-dev libqt6svg6-dev libbluetooth-dev libasound2-dev libpulse-dev libgl1-mesa-dev ninja-build -y
+          sudo apt install libcurl4-openssl-dev build-essential git cmake ffmpeg libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libevdev-dev libudev-dev libxrandr-dev libxi-dev libpulse-dev libqt6svg6-dev libasound2-dev libgudev-1.0-dev liblzma-dev libxi-dev libxrandr-dev libxinerama-dev libxcursor-dev libsoundtouch-dev libminiupnpc-dev libmbedtls-dev libao-dev libbluetooth-dev libreadline-dev libusb-1.0-0-dev qt6-base-dev qt6-base-private-dev qt6-tools-dev-tools libzstd-dev libzstd1 ninja-build ccache p7zip-full libarchive-dev libc6-i386 gcc-multilib g++-multilib -y
           sudo apt install libudev-dev libsystemd-dev -y || sudo apt install libeudev-dev -y
 
       - name: Setup ccache
@@ -352,7 +352,7 @@ jobs:
         run: |
           set -euo pipefail
           YEAR=$(date -u +"%y")
-          TAG=$( { gh release list -R sharath-5br2r/my-patched-apks --exclude-drafts -L 100 2>/devnull || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -nr | head -n1 )
+          TAG=$( { gh release list -R sharath-5br2r/my-patched-apks --exclude-drafts -L 100 2>/devnull || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -r | head -n 1 )
           if [ -n "$TAG" ]; then
               BUILD_COUNT=${TAG:2:4}
               BUILD_COUNT=$((10#$BUILD_COUNT + 1))
