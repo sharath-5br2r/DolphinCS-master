@@ -1,37 +1,31 @@
-name: Sync And Build
+Name: Sync And Build
 permissions: write-all
+
 on:
   schedule:
     - cron: '0 1/2 * * *'
   workflow_dispatch:
 
-# Only one run of this workflow at a time. A new trigger queues instead of running
-# alongside an in-progress build, so a scheduled tick that lands mid-build waits its
-# turn rather than kicking off a redundant duplicate release. cancel-in-progress is
-# deliberately false: cancelling a near-finished real build to restart from scratch
-# would be wasteful, and could in theory loop forever if ticks keep landing mid-build.
 concurrency:
   group: sync-upstream-release
   cancel-in-progress: false
 
 jobs:
-  # Cheap, no-checkout check that runs every schedule tick. Only API calls to look at closed
-  # PR numbers -- no full clone, no submodules. The expensive sync job below only runs at all if
-  # this finds something new, instead of checking out the whole repo just to bail out.
+  # ==========================================
+  # 1. CHECK JOB (Scheduled PR check)
+  # ==========================================
   check:
+    # Only run scheduled checks (skip when workflow_dispatch is triggered directly for build)
+    if: ${{ github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     outputs:
       pr_number: ${{ steps.latest.outputs.pr_number }}
       should_run: ${{ steps.check.outputs.should_run }}
-      release_tag: ${{ steps.check.outputs.release_tag }}
-      release_name: ${{ steps.check.outputs.release_name }}
 
     steps:
       - name: Determine latest upstream merged PR
         id: latest
         run: |
-          # Fetch the 50 most recently closed PRs to ensure a wide enough buffer
-          # Filter for merged PRs, sort them strictly by their merge date, and grab the newest one
           LATEST_PR=$(curl -s "https://api.github.com/repos/dolphin-emu/dolphin/pulls?state=closed&per_page=50" \
             | jq -r '[.[] | select(.merged_at != null)] | sort_by(.merged_at) | last | .number')
           
@@ -40,36 +34,33 @@ jobs:
             exit 1
           fi
           echo "pr_number=$LATEST_PR" >> "$GITHUB_OUTPUT"
-          echo "Latest upstream merged PR number: $LATEST_PR"
-
+          echo "Latest upstream merged PR number: $LATEST_PR" 🎯
 
       - name: Check if already synced
         id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Create a unified tag variable using the latest PR number
           TAG="pr-${{ steps.latest.outputs.pr_number }}"
 
           if git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" \
               "refs/tags/sync/$TAG" >/dev/null 2>&1; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "$TAG already synced, nothing to do"
+            echo "$TAG already synced, nothing to do" 😴
             exit 0
           fi
 
           echo "should_run=true" >> "$GITHUB_OUTPUT"
-          echo "$TAG is new (or a manually forced re-run), running full sync"
+          echo "$TAG is new, running full sync!" 🚀
 
 
-
+  # ==========================================
+  # 2. SYNC JOB (Fetches & merges upstream PR)
+  # ==========================================
   sync:
     needs: check
-    if: ${{ needs.check.outputs.should_run == 'true' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ needs.check.outputs.should_run == 'true' }}
     runs-on: ubuntu-latest
-    env:
-      CMAKE_C_COMPILER_LAUNCHER: "ccache"   # Directs CMake C compiler to route through ccache
-      CMAKE_CXX_COMPILER_LAUNCHER: "ccache" # Directs CMake C++ compiler to route through ccache
     steps:
       - name: Checkout feature branch
         uses: actions/checkout@v4
@@ -86,11 +77,8 @@ jobs:
       - name: Fetch upstream PR branch
         run: |
           git remote add upstream https://github.com/dolphin-emu/dolphin.git
-          # Fetch the specific closed PR's head branch references so we can merge it
           git fetch upstream "pull/${{ needs.check.outputs.pr_number }}/head:upstream-pr-${{ needs.check.outputs.pr_number }}" --quiet
 
-      # release-sync is rebuilt from the tip of master on every run, so
-      # this automation never pushes to (or conflicts with) the branch used for manual testing.
       - name: Create release-sync branch from latest feature work
         run: git checkout -B release-sync master
 
@@ -108,33 +96,45 @@ jobs:
             echo "conflict=false" >> "$GITHUB_OUTPUT"
           fi
 
-      # No GitHub Issue is filed here (Issues are disabled on this repo) -- failing the job
-      # outright is enough. GitHub automatically emails repo admins when a *scheduled* workflow
-      # run fails, and the run shows up red in the Actions tab either way.
       - name: Report merge conflict
         if: steps.merge.outputs.conflict == 'true'
         run: |
-          echo "Automatic merge of upstream PR '#${{ needs.check.outputs.pr_number }}' into release-sync (based on master) produced conflicts."
-          echo "Resolve manually:"
-          echo "  git fetch upstream pull/${{ needs.check.outputs.pr_number }}/head"
-          echo "  git checkout -B release-sync master"
-          echo "  git merge FETCH_HEAD"
+          echo "Automatic merge of upstream PR '#${{ needs.check.outputs.pr_number }}' produced conflicts 💥"
           exit 1
-          
+
+      - name: Update submodules
+        run: git submodule update --init --recursive
+
+      - name: Push release-sync branch
+        run: git push origin release-sync --force 📤
+
+
+  # ==========================================
+  # 3. BUILD JOB (Compiles Android APK)
+  # ==========================================
+  build:
+    needs: [check, sync]
+    # Runs ONLY IF:
+    # 1. Manually triggered via workflow_dispatch, OR
+    # 2. Sync job completed successfully
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.sync.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: "ccache"
+      CMAKE_CXX_COMPILER_LAUNCHER: "ccache"
+    steps:
+      - name: Checkout merged release-sync branch
+        uses: actions/checkout@v4
+        with:
+          ref: release-sync
+          submodules: recursive
+
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ccache-${{ runner.os }}
-      - name: Update submodules
-        if: steps.merge.outputs.conflict == 'false'
-        run: git submodule update --init --recursive
-
-      - name: Push release-sync branch
-        if: steps.merge.outputs.conflict == 'false'
-        run: git push origin release-sync --force
 
       - name: Set up JDK 17
-        if: steps.merge.outputs.conflict == 'false'
         uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -142,15 +142,12 @@ jobs:
           cache: gradle
 
       - name: Set up Android SDK
-        if: steps.merge.outputs.conflict == 'false'
         uses: android-actions/setup-android@v3
 
       - name: Install NDK
-        if: steps.merge.outputs.conflict == 'false'
         run: sdkmanager "ndk;29.0.14206865"
 
       - name: Cache CMake build output
-        if: steps.merge.outputs.conflict == 'false'
         uses: actions/cache@v4
         with:
           path: Source/Android/.cxx
@@ -158,27 +155,52 @@ jobs:
           restore-keys: cxx-${{ runner.os }}-
 
       - name: Decode release keystore
-        if: steps.merge.outputs.conflict == 'false'
         run: echo "${{ secrets.KEYSTORE_P12 }}" | base64 -d > "$RUNNER_TEMP/dolphincs-release.p12"
 
       - name: Build release APK
-        if: steps.merge.outputs.conflict == 'false'
         working-directory: Source/Android
         run: |
+          PR_NUM="${{ needs.check.outputs.pr_number }}"
+          SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
           ./gradlew assembleRelease --no-daemon \
             -Pkeystore="$RUNNER_TEMP/dolphincs-release.p12" \
             -Pstorepass="${{ secrets.KEYSTORE_PASS }}" \
             -Pkeyalias="${{ secrets.KEYSTORE_ALIAS }}" \
             -Pkeypass="${{ secrets.KEYSTORE_PASS }}"
-          mv app/build/outputs/apk/release/app-release.apk ../../dolphin-cs-gfp-vpr${{ needs.check.outputs.pr_number }}-all.apk
+          mv app/build/outputs/apk/release/app-release.apk "../../dolphin-cs-gfp${SUFFIX}-all.apk"
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
 
       - name: Remove decoded keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/dolphincs-release.p12"
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-apk
+          path: ./*.apk
+          retention-days: 1 📦
+
+
+  # ==========================================
+  # 4. RELEASE JOB (Publishes to GitHub Releases)
+  # ==========================================
+  release:
+    needs: [check, build]
+    if: needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download APK Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: built-apk
+          path: .
+
       - name: Get Next Version Code
-        if: steps.merge.outputs.conflict == 'false'
         id: version
         run: |
           set -euo pipefail
@@ -192,16 +214,12 @@ jobs:
           fi
 
           NEXT_VER_CODE=$(printf "%s%04d" "$YEAR" "$BUILD_COUNT")
-          if [ -n "${GITHUB_OUTPUT:-}" ]; then
-              echo "NEXT_VER_CODE=$NEXT_VER_CODE" >> "$GITHUB_OUTPUT"
-          else
-              export NEXT_VER_CODE="$NEXT_VER_CODE"
-          fi
+          echo "NEXT_VER_CODE=$NEXT_VER_CODE" >> "$GITHUB_OUTPUT"
         env: 
           GH_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
       - name: Upload to release (Archive)
         uses: softprops/action-gh-release@v3
-        if:  steps.merge.outputs.conflict == 'false'
         with:
           files: ./*.apk
           tag_name: beta
@@ -209,8 +227,8 @@ jobs:
           prerelease: true
           repository: sharath-5br2r/my-patched-apks
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
       - name: Publish release
-        if: steps.merge.outputs.conflict == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.NEXT_VER_CODE }}
@@ -219,18 +237,19 @@ jobs:
           repository: sharath-5br2r/my-patched-apks
           overwrite_files: true
           make_latest: true
-          files: |
-              ./*.apk
+          files: ./*.apk
           body: |
-            Built from upstream Dolphin closed PR `#${{ needs.check.outputs.pr_number }}`, merged with the
+            Built from custom release-sync branch, merged with the
             custom user data storage location feature (Scoped Storage / Internal Storage / SD Card).
 
-            This is an unofficial community build, not affiliated with the Dolphin team.
+            This is an unofficial community build, not affiliated with the Dolphin team. 🎉
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
 
       - name: Tag sync marker
-        if: steps.merge.outputs.conflict == 'false'
+        if: needs.check.outputs.pr_number != ''
         continue-on-error: true
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag "sync/pr-${{ needs.check.outputs.pr_number }}"
-          git push origin "sync/pr-${{ needs.check.outputs.pr_number }}"
+          git push origin "sync/pr-${{ needs.check.outputs.pr_number }}" 🏷️
