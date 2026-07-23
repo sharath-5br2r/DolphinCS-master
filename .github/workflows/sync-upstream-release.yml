@@ -15,7 +15,6 @@ jobs:
   # 1. CHECK JOB (Scheduled PR check)
   # ==========================================
   check:
-    # Only run scheduled checks (skip when workflow_dispatch is triggered directly for build)
     if: ${{ github.event_name == 'schedule' }}
     runs-on: ubuntu-latest
     outputs:
@@ -34,7 +33,7 @@ jobs:
             exit 1
           fi
           echo "pr_number=$LATEST_PR" >> "$GITHUB_OUTPUT"
-          echo "Latest upstream merged PR number: $LATEST_PR" 🎯
+          echo "Latest upstream merged PR number: $LATEST_PR"
 
       - name: Check if already synced
         id: check
@@ -46,12 +45,12 @@ jobs:
           if git ls-remote --exit-code --tags "https://github.com/${{ github.repository }}.git" \
               "refs/tags/sync/$TAG" >/dev/null 2>&1; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
-            echo "$TAG already synced, nothing to do" 😴
+            echo "$TAG already synced, nothing to do"
             exit 0
           fi
 
           echo "should_run=true" >> "$GITHUB_OUTPUT"
-          echo "$TAG is new, running full sync!" 🚀
+          echo "$TAG is new, running full sync!"
 
 
   # ==========================================
@@ -106,17 +105,21 @@ jobs:
         run: git submodule update --init --recursive
 
       - name: Push release-sync branch
-        run: git push origin release-sync --force 📤
+        run: git push origin release-sync --force
+
+      # Tag sync marker directly in sync stage once successfully merged and pushed
+      - name: Tag sync marker
+        continue-on-error: true
+        run: |
+          git tag "sync/pr-${{ needs.check.outputs.pr_number }}"
+          git push origin "sync/pr-${{ needs.check.outputs.pr_number }}" 🏷️
 
 
   # ==========================================
-  # 3. BUILD JOB (Compiles Android APK)
+  # 3A. BUILD JOB - ANDROID
   # ==========================================
-  build:
+  android:
     needs: [check, sync]
-    # Runs ONLY IF:
-    # 1. Manually triggered via workflow_dispatch, OR
-    # 2. Sync job completed successfully
     if: always() && (github.event_name == 'workflow_dispatch' || needs.sync.result == 'success')
     runs-on: ubuntu-latest
     env:
@@ -129,10 +132,10 @@ jobs:
           ref: release-sync
           submodules: recursive
 
-      - name: ccache
+      - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ccache-${{ runner.os }}
+          key: ccache-android-${{ runner.os }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -167,7 +170,7 @@ jobs:
             -Pstorepass="${{ secrets.KEYSTORE_PASS }}" \
             -Pkeyalias="${{ secrets.KEYSTORE_ALIAS }}" \
             -Pkeypass="${{ secrets.KEYSTORE_PASS }}"
-          mv app/build/outputs/apk/release/app-release.apk "../../dolphin-cs-gfp${SUFFIX}-all.apk"
+          mv app/build/outputs/apk/release/app-release.apk "../../dolphin-extra-gfp${SUFFIX}-android.apk"
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/29.0.14206865
 
@@ -175,37 +178,171 @@ jobs:
         if: always()
         run: rm -f "$RUNNER_TEMP/dolphincs-release.p12"
 
-      - name: Upload APK Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: built-apk
+          name: android-build
           path: ./*.apk
-          retention-days: 1 📦
+          retention-days: 1
+
+
+  # ==========================================
+  # 3B. BUILD JOB - WINDOWS
+  # ==========================================
+  windows:
+    needs: [check, sync]
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.sync.result == 'success')
+    runs-on: windows-2022
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: "ccache"
+      CMAKE_CXX_COMPILER_LAUNCHER: "ccache"
+    steps:
+      - name: Checkout merged release-sync branch
+        uses: actions/checkout@v4
+        with:
+          ref: release-sync
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: choco install pkgconfiglite curl ninja
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ccache-windows-${{ runner.os }}
+
+      - uses: egor-tensin/vs-shell@v2
+      - uses: libsdl-org/setup-sdl@main
+        id: sdl
+        with:
+          install-linux-dependencies: true
+          version: 2-latest
+          version-sdl-image: 2-latest
+
+      - name: "Build Windows Dolphin"
+        shell: cmd
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir build
+          cd build
+          cmake -G "Ninja" -DCMAKE_BUILD_TYPE="Release" ..
+          cmake --build . --target dolphin-emu
+
+      - name: "Prepare Windows Artifact Structure"
+        working-directory: ${{ github.workspace }}
+        run: |
+          Xcopy /Y /E /I .\Data\Sys .\Binary\x64\Sys
+          cd .\Binary\x64\
+          fsutil file createnew FIX-VCRUNTIME140-ERROR.txt 0
+          echo "Download and install this: https://aka.ms/vs/17/release/vc_redist.x64.exe" > .\FIX-VCRUNTIME140-ERROR.txt
+
+      - name: "Package Windows Dolphin"
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          PR_NUM="${{ needs.check.outputs.pr_number }}"
+          SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
+          FILE_NAME="dolphin-extra${SUFFIX}-windows.zip"
+          
+          mkdir -p artifact
+          cd .\Binary\x64\
+          attrib +r Sys\*.* /s || true
+          fsutil file createnew portable.txt 0
+          7z a "$FILE_NAME" .\*
+          mv "$FILE_NAME" ../../artifact/
+
+      - name: "Upload Artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: "./artifact/*.zip"
+          retention-days: 1
+
+
+  # ==========================================
+  # 3C. BUILD JOB - LINUX
+  # ==========================================
+  linux:
+    needs: [check, sync]
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.sync.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      CMAKE_C_COMPILER_LAUNCHER: "ccache"
+      CMAKE_CXX_COMPILER_LAUNCHER: "ccache"
+    steps:
+      - name: Checkout merged release-sync branch
+        uses: actions/checkout@v4
+        with:
+          ref: release-sync
+          submodules: recursive
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt install libcurl4-openssl-dev build-essential git cmake ffmpeg libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libevdev-dev libudev-dev libxrandr-dev libxi-dev libpangocairo-1.0-0 qt6-base-dev qt6-base-private-dev libqt6svg6-dev libbluetooth-dev libasound2-dev libpulse-dev libgl1-mesa-dev ninja-build -y
+          sudo apt install libudev-dev libsystemd-dev -y || sudo apt install libeudev-dev -y
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ccache-linux-${{ runner.os }}
+
+      - name: Configure CMake
+        run: |
+          mkdir build
+          cd build
+          cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DLINUX_LOCAL_DEV=true -DCMAKE_PREFIX_PATH=./Externals/Qt/Qt6.5.1/x64/lib/cmake/ ..
+
+      - name: Build
+        run: |
+          cd build
+          ninja dolphin-emu
+          cp -r ../Data/Sys/ Binaries/
+          touch Binaries/portable.txt
+
+      - name: "Package Linux Dolphin"
+        working-directory: ${{ github.workspace }}
+        run: |
+          PR_NUM="${{ needs.check.outputs.pr_number }}"
+          SUFFIX="${PR_NUM:+-vpr$PR_NUM}"
+          FILE_NAME="dolphin-extra${SUFFIX}-linux.zip"
+
+          mkdir -p artifact
+          cd build/Binaries
+          zip -r "../../artifact/${FILE_NAME}" ./*
+
+      - name: "Upload Artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: "./artifact/*.zip"
+          retention-days: 1
 
 
   # ==========================================
   # 4. RELEASE JOB (Publishes to GitHub Releases)
   # ==========================================
   release:
-    needs: [check, build]
-    if: needs.build.result == 'success'
+    needs: [check, android, windows, linux]
+    if: always() && (needs.android.result == 'success' || needs.windows.result == 'success' || needs.linux.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download APK Artifact
+      - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: built-apk
-          path: .
+          path: ./release-files
+          pattern: "*-build"
+          merge-multiple: true
 
       - name: Get Next Version Code
         id: version
         run: |
           set -euo pipefail
           YEAR=$(date -u +"%y")
-          TAG=$( { gh release list -R sharath-5br2r/my-patched-apks --exclude-drafts -L 100 2>/dev/null || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -nr | head -n1 )
+          TAG=$( { gh release list -R sharath-5br2r/my-patched-apks --exclude-drafts -L 100 2>/devnull || true; } | awk -F '\t' -v year="$YEAR" '$3 ~ "^" year "[0-9][0-9][0-9][0-9]$" {print $3}' | sort -nr | head -n1 )
           if [ -n "$TAG" ]; then
               BUILD_COUNT=${TAG:2:4}
               BUILD_COUNT=$((10#$BUILD_COUNT + 1))
@@ -221,7 +358,7 @@ jobs:
       - name: Upload to release (Archive)
         uses: softprops/action-gh-release@v3
         with:
-          files: ./*.apk
+          files: ./release-files/*
           tag_name: beta
           overwrite_files: true
           prerelease: true
@@ -237,19 +374,10 @@ jobs:
           repository: sharath-5br2r/my-patched-apks
           overwrite_files: true
           make_latest: true
-          files: ./*.apk
+          files: ./release-files/*
           body: |
             Built from custom release-sync branch, merged with the
             custom user data storage location feature (Scoped Storage / Internal Storage / SD Card).
 
             This is an unofficial community build, not affiliated with the Dolphin team. 🎉
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
-
-      - name: Tag sync marker
-        if: needs.check.outputs.pr_number != ''
-        continue-on-error: true
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "sync/pr-${{ needs.check.outputs.pr_number }}"
-          git push origin "sync/pr-${{ needs.check.outputs.pr_number }}" 🏷️
