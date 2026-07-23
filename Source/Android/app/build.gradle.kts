@@ -8,6 +8,16 @@ plugins {
 @Suppress("UnstableApiUsage")
 android {
     compileSdk = 37
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.androidx.baselineprofile)
+}
+
+@Suppress("UnstableApiUsage")
+android {
+    compileSdk = 37
     ndkVersion = "30.0.15729638"
 
     buildFeatures {
@@ -36,18 +46,32 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.tencent.tmgp.pubgmhd"
         minSdk = 24
         targetSdk = 37
 
         versionCode = getBuildVersionCode()
-
         versionName = getGitVersion()
 
         buildConfigField("String", "GIT_HASH", "\"${getGitHash()}\"")
         buildConfigField("String", "BRANCH", "\"${getBranch()}\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Define flavor dimensions
+    flavorDimensions += "variant"
+
+    productFlavors {
+        create("stock") {
+            dimension = "variant"
+            applicationId = "org.dolphinemu.dolphinemu"
+            resValue("string", "app_name_suffixed", "Dolphin Emulator")
+        }
+        create("gfp") {
+            dimension = "variant"
+            applicationId = "com.tencent.tmgp.pubgmhd"
+            resValue("string", "app_name_suffixed", "Dolphin Emulator")
+        }
     }
 
     signingConfigs {
@@ -70,7 +94,6 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
 
-            resValue("string", "app_name_suffixed", "Dolphin Emulator")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -80,9 +103,8 @@ android {
         }
 
         // Signed by debug key disallowing distribution on Play Store.
-        // Attaches "debug" suffix to version and package name, allowing installation alongside the release build.
+        // Attaches "debug" suffix to version name, allowing side-by-side installation.
         debug {
-            resValue("string", "app_name_suffixed", "Dolphin Debug")
             versionNameSuffix = "-debug"
             isJniDebuggable = true
         }
